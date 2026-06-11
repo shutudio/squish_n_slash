@@ -199,7 +199,10 @@
 <div id="setScreen" class="overlay hidden">
   <div class="ovTitle">설정</div>
   <button class="btn ghost" id="setSound">🔊 소리: 켜짐</button>
+  <button class="btn ghost" id="setCombo">🎵 콤보 멜로디: 켜짐</button>
+  <button class="btn ghost" id="setVib">📳 진동: 켜짐</button>
   <button class="btn ghost" id="setTut">📖 튜토리얼 다시 보기</button>
+  <button class="btn ghost" id="setReset">🗑 데이터 초기화</button>
   <button class="btn" id="setClose">닫기</button>
 </div>
 
@@ -467,7 +470,7 @@ function playClang(){
 }
 /* 콤보 — 음이 단계적으로 상승 */
 function playCombo(n){
-  if (!AC) return; const t = AC.currentTime;
+  if (!AC || !uiSndOn) return; const t = AC.currentTime;
   const steps = Math.min(n, 6);
   for (let i = 0; i < steps; i++)
     tone(t + i * 0.055, 'sine', 620 * Math.pow(2, i / 7), 620 * Math.pow(2, i / 7), 0.22, 0.005, 0.14);
@@ -477,7 +480,9 @@ function playOver(){
   if (!AC) return; const t = AC.currentTime;
   [440, 350, 262].forEach((f, i) => tone(t + i * 0.22, 'triangle', f, f * 0.97, 0.25, 0.01, 0.3));
 }
-function buzz(p){ if (navigator.vibrate) { try { navigator.vibrate(p); } catch(e){} } }
+let vibOn = safeGet('sns_vib') !== '0';      // 진동 설정
+let uiSndOn = safeGet('sns_uisnd') !== '0';  // 콤보 멜로디·UI 효과음 설정 (ASMR 모드용)
+function buzz(p){ if (vibOn && navigator.vibrate) { try { navigator.vibrate(p); } catch(e){} } }
 
 /* ================= 게임 상태 ================= */
 const ST = { MENU: 0, PLAY: 1, OVER: 2, TUT: 3 };
@@ -1398,8 +1403,22 @@ $('tutSkip').addEventListener('click', endTutorial);
 /* ----- 설정 ----- */
 function syncSoundLabel(){
   $('setSound').textContent = muted ? '🔇 소리: 꺼짐' : '🔊 소리: 켜짐';
+  $('setCombo').textContent = uiSndOn ? '🎵 콤보 멜로디: 켜짐' : '🎵 콤보 멜로디: 꺼짐 (ASMR)';
+  $('setVib').textContent = vibOn ? '📳 진동: 켜짐' : '📳 진동: 꺼짐';
   $('muteBtn').textContent = muted ? '🔇' : '🔊';
 }
+$('setCombo').addEventListener('click', () => {
+  uiSndOn = !uiSndOn; safeSet('sns_uisnd', uiSndOn ? '1' : '0'); syncSoundLabel();
+});
+$('setVib').addEventListener('click', () => {
+  vibOn = !vibOn; safeSet('sns_vib', vibOn ? '1' : '0'); syncSoundLabel();
+  if (vibOn) buzz(30);
+});
+$('setReset').addEventListener('click', () => {
+  if (!confirm('정말 모든 데이터(코인, 도감, 기록)를 초기화할까요?')) return;
+  try { ['sns_gd', 'sns_best', 'sns_best_t', 'sns_tut_done', 'sns_vib', 'sns_uisnd'].forEach(k => localStorage.removeItem(k)); } catch(e){}
+  location.reload();
+});
 $('setBtn').addEventListener('click', e => {
   e.stopPropagation();
   paused = true;
@@ -1539,13 +1558,50 @@ $('gachaPull10').addEventListener('click', () => {
   });
 });
 refreshCoins();
-$('shareBtn').addEventListener('click', async () => {
-  const text = 'Squish & Slash에서 ' + score + '점 달성! 🔪 최고 콤보 ' + maxCombo + '!';
-  if (navigator.share){
-    try { await navigator.share({ title: 'Squish & Slash', text }); } catch(e){}
-  } else {
-    try { await navigator.clipboard.writeText(text); alert('점수가 클립보드에 복사됐어요!'); } catch(e){}
+/* 결과 공유 — 점수 카드 이미지 생성 */
+async function makeShareCard(){
+  const c = document.createElement('canvas');
+  c.width = 1080; c.height = 1350;
+  const g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 0, 1350);
+  grd.addColorStop(0, '#241b4d'); grd.addColorStop(0.6, '#171232'); grd.addColorStop(1, '#0e0a22');
+  g.fillStyle = grd; g.fillRect(0, 0, 1080, 1350);
+  // 반짝이 배경
+  for (let i = 0; i < 40; i++){
+    g.fillStyle = 'rgba(255,255,255,' + rand(0.05, 0.25) + ')';
+    g.beginPath(); g.arc(rand(0, 1080), rand(0, 1350), rand(2, 5), 0, TAU); g.fill();
   }
+  g.textAlign = 'center';
+  g.fillStyle = '#ffd84d'; g.font = '900 92px sans-serif';
+  g.fillText('Squish & Slash', 540, 170);
+  g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '700 50px sans-serif';
+  g.fillText(mode === 'time' ? '⏱ 타임어택' : '🍮 기본 모드', 540, 260);
+  // 마스코트 (보유 캐릭터 중 랜덤)
+  const owned = CHARS.filter(ch => gd.owned.includes(ch.id) && ch.type === 'slangi');
+  const ch = owned.length ? owned[(Math.random() * owned.length) | 0] : charById('cheese', 'slangi');
+  const spr = makeSprite('slangi', 190, ch.pal, 1.7, false, ch.deco);
+  g.drawImage(spr.c, 540 - 270, 330, 540, 540);
+  // 점수
+  g.fillStyle = '#ffffff'; g.font = '900 170px sans-serif';
+  g.fillText(score + '점', 540, 1040);
+  g.fillStyle = '#ffd84d'; g.font = '700 58px sans-serif';
+  g.fillText('🔥 최고 콤보 ' + maxCombo, 540, 1140);
+  g.fillStyle = 'rgba(255,255,255,0.45)'; g.font = '600 38px sans-serif';
+  g.fillText('shutudio.github.io/squish_n_slash', 540, 1280);
+  return new Promise(r => c.toBlob(r, 'image/png'));
+}
+$('shareBtn').addEventListener('click', async () => {
+  const blob = await makeShareCard();
+  const file = new File([blob], 'squish_score.png', { type: 'image/png' });
+  const text = 'Squish & Slash에서 ' + score + '점 달성! 🔪 최고 콤보 ' + maxCombo + '!';
+  if (navigator.canShare && navigator.canShare({ files: [file] })){
+    try { await navigator.share({ files: [file], title: 'Squish & Slash', text }); return; } catch(e){}
+  }
+  // 폴백: 이미지 다운로드
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'squish_score.png';
+  a.click();
 });
 $('muteBtn').addEventListener('click', e => {
   e.stopPropagation();
@@ -1557,7 +1613,7 @@ $('muteBtn').addEventListener('click', e => {
 const mascot = $('mascot');
 renderCharTo(mascot, charById('cheese', 'slangi'), false);
 function playBoing(){
-  if (!AC) return; const t = AC.currentTime;
+  if (!AC || !uiSndOn) return; const t = AC.currentTime;
   const o = AC.createOscillator(); o.type = 'sine';
   const f = rand(200, 270);
   o.frequency.setValueAtTime(f, t);
