@@ -63,6 +63,33 @@
     100% { transform:translate(95px, -95px) rotate(8deg); opacity:0; }
   }
 
+  /* ---------- 가챠 / 도감 ---------- */
+  .metaRow { display:flex; gap:10px; }
+  .coinBar { font-size:17px; font-weight:700; color:#ffd54d; }
+  #collGrid {
+    display:grid; grid-template-columns:repeat(4, minmax(68px, 80px)); gap:10px;
+    max-height:48vh; overflow-y:auto; padding:4px;
+  }
+  .card {
+    background:rgba(255,255,255,.08); border-radius:12px; padding:7px 4px 5px;
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    cursor:pointer; border:2px solid transparent;
+  }
+  .card.eq { border-color:#ffd54d; background:rgba(255,213,77,.12); }
+  .card canvas { width:52px; height:52px; }
+  .card .nm { font-size:10px; font-weight:700; line-height:1.2; text-align:center; }
+  .card.lock { opacity:.5; }
+  #collRate { font-size:14px; opacity:.8; }
+  .collHint { font-size:12px; opacity:.55; }
+  #gachaBox { font-size:84px; filter:drop-shadow(0 6px 16px rgba(0,0,0,.4)); }
+  #gachaBox.shake { animation:gshake .12s linear infinite; }
+  @keyframes gshake { 0%{transform:rotate(-9deg) scale(1.02)} 50%{transform:rotate(9deg) scale(1.06)} 100%{transform:rotate(-9deg) scale(1.02)} }
+  #gachaResult { display:none; flex-direction:column; align-items:center; gap:4px; }
+  #gachaCv { width:140px; height:140px; }
+  #gachaName { font-size:20px; font-weight:800; }
+  #gachaRar { font-size:15px; font-weight:700; }
+  #gachaMsg { font-size:14px; color:#ff8a9a; min-height:18px; }
+
   /* ---------- Overlays ---------- */
   .overlay {
     position:fixed; inset:0; z-index:10;
@@ -147,6 +174,11 @@
   </div>
   <div class="subtitle">한 번에 여러 개 자르면 <b style="color:#ffd84d">콤보 보너스!</b> · 놓치면 생명 −1</div>
   <button id="startBtn" class="btn">시작하기</button>
+  <div class="metaRow">
+    <button class="btn ghost openColl">📚 도감</button>
+    <button class="btn ghost openGacha">🎁 뽑기</button>
+  </div>
+  <div class="coinBar">🪙 <span class="coinVal">0</span></div>
   <div class="hint">손가락(마우스)을 드래그해서 슬라이스 ✦ 소리를 켜고 플레이하세요 🎧</div>
 </div>
 
@@ -156,9 +188,36 @@
     <div class="big" id="finalScore">0</div>
     <div class="row">🔥 최고 콤보 <b id="finalCombo">0</b></div>
     <div class="row">🏆 최고 기록 <b id="finalBest">0</b> <span id="newBestTag" class="newBest hidden">NEW BEST!</span></div>
+    <div class="row">🪙 +<b id="coinEarn">0</b> 획득 (보유 <span class="coinVal">0</span>)</div>
   </div>
   <button id="retryBtn" class="btn">다시하기</button>
-  <button id="shareBtn" class="btn ghost">공유하기</button>
+  <div class="metaRow">
+    <button class="btn ghost openColl">📚 도감</button>
+    <button class="btn ghost openGacha">🎁 뽑기</button>
+    <button id="shareBtn" class="btn ghost">공유</button>
+  </div>
+</div>
+
+<div id="collScreen" class="overlay hidden">
+  <div class="ovTitle">도감</div>
+  <div id="collRate"></div>
+  <div class="collHint">캐릭터를 누르면 장착! 게임에 그 모습으로 등장해요</div>
+  <div id="collGrid"></div>
+  <button class="btn" id="collClose">닫기</button>
+</div>
+
+<div id="gachaScreen" class="overlay hidden">
+  <div class="ovTitle">뽑기</div>
+  <div id="gachaBox">🎁</div>
+  <div id="gachaResult">
+    <canvas id="gachaCv" width="280" height="280"></canvas>
+    <div id="gachaName"></div>
+    <div id="gachaRar"></div>
+  </div>
+  <div id="gachaMsg"></div>
+  <div class="coinBar">🪙 <span class="coinVal">0</span></div>
+  <button class="btn" id="gachaPull">100🪙 뽑기!</button>
+  <button class="btn ghost" id="gachaClose">닫기</button>
 </div>
 
 <script>
@@ -414,6 +473,96 @@ function palFor(type){
   if (type === 'wak') return WAK_PALS[(Math.random() * WAK_PALS.length) | 0];
   return COLORS.ice;
 }
+/* ================= 캐릭터 도감 데이터 ================= */
+const RARITY = [null,
+  { name: '일반', color: '#cdd5e4' },
+  { name: '레어', color: '#7cc4ff' },
+  { name: '에픽', color: '#d3a8ff' },
+  { name: '전설', color: '#ffd54d' }
+];
+const CHARS = [
+  { id: 'cheese',  name: '치즈 슬랑이',   type: 'slangi', rar: 1, pal: { light: '#fff8e1', main: '#ffe9a8', dark: '#dec06a' } },
+  { id: 'milk',    name: '우유 슬랑이',   type: 'slangi', rar: 1, pal: { light: '#ffffff', main: '#f3eee2', dark: '#c9bfa8' } },
+  { id: 'berry',   name: '딸기 슬랑이',   type: 'slangi', rar: 1, pal: { light: '#ffe2ec', main: '#ffb3cc', dark: '#e8819f' }, deco: 'seeds' },
+  { id: 'melon',   name: '멜론 슬랑이',   type: 'slangi', rar: 1, pal: { light: '#d9ffd2', main: '#93e87e', dark: '#55b04a' }, deco: 'stripe' },
+  { id: 'soda',    name: '소다 슬랑이',   type: 'slangi', rar: 2, pal: { light: '#dbf3ff', main: '#9fd6ff', dark: '#5fa8e0' }, deco: 'bubble' },
+  { id: 'choco',   name: '초코 슬랑이',   type: 'slangi', rar: 2, pal: { light: '#d9a87c', main: '#9c6b44', dark: '#6b4326' }, deco: 'chips' },
+  { id: 'grape',   name: '포도 슬랑이',   type: 'slangi', rar: 2, pal: { light: '#f0deff', main: '#d3a8ff', dark: '#a070d8' }, deco: 'bubble' },
+  { id: 'mint',    name: '민트초코 슬랑이', type: 'slangi', rar: 3, pal: { light: '#d9fff1', main: '#8fe5c5', dark: '#4fae8b' }, deco: 'chips' },
+  { id: 'night',   name: '별밤 슬랑이',   type: 'slangi', rar: 3, pal: { light: '#9daee0', main: '#5a66a8', dark: '#343c6e' }, deco: 'stars' },
+  { id: 'rainbow', name: '무지개 슬랑이', type: 'slangi', rar: 4, pal: { light: '#ffffff', main: '#f6f2ff', dark: '#cfc4e8' }, deco: 'rainbow' },
+  { id: 'cotton',  name: '솜사탕 왁뿌볼', type: 'wak', rar: 1, pal: { a: '#aee3ff', b: '#ffb9cf' } },
+  { id: 'orange',  name: '오렌지크림 왁뿌볼', type: 'wak', rar: 1, pal: { a: '#ffd9a8', b: '#fff3d6' } },
+  { id: 'lav',     name: '라벤더 왁뿌볼', type: 'wak', rar: 2, pal: { a: '#e7c8ff', b: '#c9d8ff' } },
+  { id: 'peach',   name: '복숭아 왁뿌볼', type: 'wak', rar: 2, pal: { a: '#ffc9d8', b: '#ffe9ef' }, deco: 'hearts' },
+  { id: 'sesame',  name: '흑임자 왁뿌볼', type: 'wak', rar: 3, pal: { a: '#eae6de', b: '#56524c' } },
+  { id: 'aurora',  name: '오로라 왁뿌볼', type: 'wak', rar: 4, pal: { a: '#9fd6ff', b: '#d3a8ff' }, deco: 'aurora' }
+];
+/* 저장 데이터: 코인 / 보유 / 장착 */
+let gd = null;
+try { gd = JSON.parse(safeGet('sns_gd') || 'null'); } catch(e){ gd = null; }
+if (!gd || !gd.owned) gd = { coins: 0, owned: ['cheese', 'cotton'], eqS: 'cheese', eqW: 'cotton' };
+function saveGd(){ safeSet('sns_gd', JSON.stringify(gd)); }
+function charById(id, type){
+  return CHARS.find(c => c.id === id && c.type === type) || CHARS.find(c => c.type === type);
+}
+function refreshCoins(){
+  document.querySelectorAll('.coinVal').forEach(e => { e.textContent = gd.coins; });
+}
+/* 캐릭터 무늬 */
+function drawDeco(r, deco){
+  if (deco === 'seeds'){
+    ctx.fillStyle = 'rgba(190,50,70,0.55)';
+    for (let i = 0; i < 7; i++){
+      const a = i * 0.93 + 0.4, d = r * (0.38 + 0.32 * ((i * 37) % 10) / 10);
+      ctx.save(); ctx.translate(Math.cos(a) * d, Math.sin(a) * d * 0.68); ctx.rotate(a);
+      ctx.beginPath(); ctx.ellipse(0, 0, r * 0.032, r * 0.055, 0, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+  } else if (deco === 'stripe'){
+    ctx.strokeStyle = 'rgba(50,110,40,0.4)'; ctx.lineWidth = r * 0.09; ctx.lineCap = 'round';
+    for (let i = -1; i <= 1; i++){
+      ctx.beginPath(); ctx.moveTo(-r * 0.85, i * r * 0.42 - r * 0.05);
+      ctx.quadraticCurveTo(0, i * r * 0.42 + r * 0.08, r * 0.85, i * r * 0.42 - r * 0.05);
+      ctx.stroke();
+    }
+  } else if (deco === 'bubble'){
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    for (let i = 0; i < 6; i++){
+      const a = i * 1.13 + 0.7, d = r * (0.3 + 0.42 * ((i * 53) % 10) / 10);
+      ctx.beginPath(); ctx.arc(Math.cos(a) * d, Math.sin(a) * d * 0.68, r * (0.045 + 0.03 * (i % 3)), 0, TAU); ctx.fill();
+    }
+  } else if (deco === 'chips'){
+    ctx.fillStyle = 'rgba(60,35,18,0.8)';
+    for (let i = 0; i < 6; i++){
+      const a = i * 1.05 + 0.3, d = r * (0.35 + 0.38 * ((i * 71) % 10) / 10);
+      ctx.beginPath(); ctx.arc(Math.cos(a) * d, Math.sin(a) * d * 0.68, r * 0.07, 0, TAU); ctx.fill();
+    }
+  } else if (deco === 'stars' || deco === 'hearts'){
+    ctx.font = (r * 0.24) + 'px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = deco === 'stars' ? 'rgba(255,243,160,0.95)' : 'rgba(255,110,145,0.85)';
+    const s = deco === 'stars' ? '★' : '♥';
+    for (let i = 0; i < 5; i++){
+      const a = i * 1.35 + 0.5, d = r * (0.35 + 0.35 * ((i * 41) % 10) / 10);
+      ctx.fillText(s, Math.cos(a) * d, Math.sin(a) * d * 0.66);
+    }
+  } else if (deco === 'rainbow' || deco === 'aurora'){
+    ctx.save();
+    ctx.beginPath();
+    if (deco === 'aurora') ctx.arc(0, 0, r * 0.97, 0, TAU);
+    else ctx.ellipse(0, 0, r * 1.0, r * 0.8, 0, 0, TAU);
+    ctx.clip();
+    const cols = ['#ff9aa2', '#ffd97a', '#9be8a0', '#9fd6ff', '#d3a8ff'];
+    ctx.globalAlpha = 0.45;
+    cols.forEach((c, i) => {
+      ctx.fillStyle = c;
+      ctx.fillRect(-r * 1.1, -r * 0.7 + i * r * 0.28, r * 2.2, r * 0.28);
+    });
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
 function partColors(type, pal){
   if (type === 'slangi') return [pal.light, pal.main, '#ffffff'];
   if (type === 'wak') return [pal.a, pal.b, '#ffffff'];
@@ -439,7 +588,13 @@ function spawnObj(){
   const apex = H * rand(0.55, 0.85);
   const gold = type === 'slangi' && Math.random() < 0.06;   // 레어 황금 슬랑이
   const multi = type === 'slangi' && !gold && Math.random() < 0.08;  // 멀티 슬랑이 (연쇄)
-  const pal = gold ? { light: '#fff8cf', main: '#ffd54d', dark: '#cf9a12' } : palFor(type);
+  let pal, deco = null;
+  if (gold) pal = { light: '#fff8cf', main: '#ffd54d', dark: '#cf9a12' };
+  else if (type === 'ice') pal = COLORS.ice;
+  else {   // 장착한 캐릭터 스킨으로 등장
+    const ch = charById(type === 'slangi' ? gd.eqS : gd.eqW, type);
+    pal = ch.pal; deco = ch.deco || null;
+  }
   const seed = rand(0, TAU);
   objs.push({
     type, x, y: H + R + 10, gold, multi,
@@ -447,7 +602,7 @@ function spawnObj(){
     vy: -Math.sqrt(2 * GRAV() * apex),
     r: R, rot: rand(0, TAU), vrot: rand(-2, 2),
     phase: rand(0, TAU), hit: false, dead: false, iceFlash: 0,
-    pal, seed, spr: makeSprite(type, R, pal, seed, multi)
+    pal, seed, spr: makeSprite(type, R, pal, seed, multi, deco)
   });
 }
 
@@ -888,7 +1043,7 @@ function roundRect(x, y, w, h, rr){
 }
 /* 스프라이트 캐시 — 등장 시 한 번만 그려두고 매 프레임 이미지로 찍음 (프레임 최적화) */
 const SPR_PAD = 1.4;
-function makeSprite(type, r, pal, seed, multi){
+function makeSprite(type, r, pal, seed, multi, deco){
   const half = r * SPR_PAD;
   const res = Math.min(window.devicePixelRatio || 1, 2);
   const c = document.createElement('canvas');
@@ -897,6 +1052,7 @@ function makeSprite(type, r, pal, seed, multi){
   const old = ctx; ctx = sc;
   ctx.setTransform(res, 0, 0, res, half * res, half * res);
   drawShape(type, r, 0, pal, seed);
+  if (deco) drawDeco(r, deco);   // 캐릭터 무늬
   if (multi){   // 멀티 슬랑이 — 물방울 무늬
     const MC = ['#ff8fb3', '#7cc4ff', '#8fe3a0', '#ffd455', '#c79bff'];
     for (let i = 0; i < 6; i++){
@@ -1104,6 +1260,10 @@ function gameOver(){
   playOver(); buzz([60, 50, 120]);
   const isNew = score > best;
   if (isNew){ best = score; safeSet('sns_best', best); }
+  const earned = Math.round(score / 10);   // 점수의 10% 코인 적립
+  gd.coins += earned; saveGd();
+  $('coinEarn').textContent = earned;
+  refreshCoins();
   $('finalScore').textContent = score;
   $('finalCombo').textContent = maxCombo;
   $('finalBest').textContent = best;
@@ -1137,6 +1297,96 @@ $('setSound').addEventListener('click', () => {
   syncSoundLabel();
 });
 $('setTut').addEventListener('click', startTutorial);
+
+/* ================= 도감 / 뽑기 UI ================= */
+function renderCharTo(canvas, ch, locked){
+  const n = canvas.width;
+  const c2 = canvas.getContext('2d');
+  c2.clearRect(0, 0, n, n);
+  const r = n * 0.3;
+  const spr = makeSprite(ch.type, r, ch.pal, 1.7, false, ch.deco);   // 고정 seed → 항상 같은 모습
+  c2.drawImage(spr.c, n / 2 - spr.half, n / 2 - spr.half, spr.half * 2, spr.half * 2);
+  if (locked){
+    c2.globalCompositeOperation = 'source-atop';
+    c2.fillStyle = 'rgba(22,17,45,0.88)';
+    c2.fillRect(0, 0, n, n);
+    c2.globalCompositeOperation = 'source-over';
+    c2.fillStyle = '#8d87a8'; c2.font = '700 ' + n * 0.3 + 'px sans-serif';
+    c2.textAlign = 'center'; c2.textBaseline = 'middle';
+    c2.fillText('?', n / 2, n / 2);
+  }
+}
+function buildColl(){
+  const grid = $('collGrid'); grid.innerHTML = '';
+  let own = 0;
+  for (const ch of CHARS){
+    const owned = gd.owned.includes(ch.id); if (owned) own++;
+    const eq = (ch.type === 'slangi' ? gd.eqS : gd.eqW) === ch.id;
+    const card = document.createElement('div');
+    card.className = 'card' + (owned ? '' : ' lock') + (eq && owned ? ' eq' : '');
+    const cvs = document.createElement('canvas'); cvs.width = cvs.height = 104;
+    renderCharTo(cvs, ch, !owned);
+    const nm = document.createElement('div'); nm.className = 'nm';
+    nm.textContent = owned ? ch.name : '???';
+    nm.style.color = RARITY[ch.rar].color;
+    card.appendChild(cvs); card.appendChild(nm);
+    if (owned) card.onclick = () => {
+      if (ch.type === 'slangi') gd.eqS = ch.id; else gd.eqW = ch.id;
+      saveGd(); buildColl();
+    };
+    grid.appendChild(card);
+  }
+  $('collRate').textContent = '수집률 ' + own + ' / ' + CHARS.length;
+}
+document.querySelectorAll('.openColl').forEach(b => b.addEventListener('click', () => {
+  buildColl(); $('collScreen').classList.remove('hidden');
+}));
+$('collClose').addEventListener('click', () => $('collScreen').classList.add('hidden'));
+document.querySelectorAll('.openGacha').forEach(b => b.addEventListener('click', () => {
+  $('gachaResult').style.display = 'none';
+  $('gachaBox').style.display = 'block';
+  $('gachaMsg').textContent = '';
+  refreshCoins();
+  $('gachaScreen').classList.remove('hidden');
+}));
+$('gachaClose').addEventListener('click', () => $('gachaScreen').classList.add('hidden'));
+let pulling = false;
+$('gachaPull').addEventListener('click', () => {
+  if (pulling) return;
+  initAudio();
+  if (gd.coins < 100){
+    $('gachaMsg').textContent = '코인이 부족해요! 게임 점수의 10%가 코인으로 쌓여요';
+    return;
+  }
+  pulling = true;
+  gd.coins -= 100; saveGd(); refreshCoins();
+  $('gachaMsg').textContent = '';
+  $('gachaResult').style.display = 'none';
+  $('gachaBox').style.display = 'block';
+  $('gachaBox').classList.add('shake');
+  playCombo(3);
+  setTimeout(() => {
+    $('gachaBox').classList.remove('shake');
+    $('gachaBox').style.display = 'none';
+    const roll = Math.random() * 100;   // 일반 60 / 레어 28 / 에픽 10 / 전설 2
+    const rar = roll < 2 ? 4 : roll < 12 ? 3 : roll < 40 ? 2 : 1;
+    const pool = CHARS.filter(c => c.rar === rar);
+    const ch = pool[(Math.random() * pool.length) | 0];
+    const dup = gd.owned.includes(ch.id);
+    if (dup) gd.coins += 30;
+    else gd.owned.push(ch.id);
+    saveGd(); refreshCoins();
+    renderCharTo($('gachaCv'), ch, false);
+    $('gachaName').textContent = ch.name;
+    $('gachaRar').textContent = RARITY[ch.rar].name + (dup ? ' · 중복! +30🪙 환급' : ' · NEW!');
+    $('gachaRar').style.color = RARITY[ch.rar].color;
+    $('gachaResult').style.display = 'flex';
+    playCombo(2 + ch.rar);
+    buzz(ch.rar >= 3 ? [40, 60, 80] : 30);
+    pulling = false;
+  }, 1000);
+});
+refreshCoins();
 $('shareBtn').addEventListener('click', async () => {
   const text = 'Squish & Slash에서 ' + score + '점 달성! 🔪 최고 콤보 ' + maxCombo + '!';
   if (navigator.share){
