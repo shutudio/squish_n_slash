@@ -228,24 +228,37 @@ function playSquish(p){
   if (!AC) return;
   if (playSample('slangi', p)) return;
   const t = AC.currentTime, v = rand(0.92, 1.08);
-  // 1) 철퍽 — 메인 스플랫 (넓은 노이즈가 젖은 느낌으로 쓸려 내려감)
-  noiseHit(t, 'lowpass', 2400 * p * v, 260, 1.8, 0.5, 0.24);
-  // 2) 물기 머금은 철퍽이 불규칙하게 한두 번 더 겹침
-  noiseHit(t + rand(0.03, 0.06), 'bandpass', rand(550, 900) * p, 300, 1.5, 0.3, rand(0.08, 0.14));
-  noiseHit(t + rand(0.08, 0.13), 'bandpass', rand(400, 700) * p, 250, 1.5, 0.22, rand(0.07, 0.12));
-  // 3) 튀는 잔 물방울
-  for (let i = 0; i < 4; i++)
-    noiseHit(t + rand(0.02, 0.16), 'lowpass', rand(1600, 3200), 800, 1, rand(0.05, 0.12), rand(0.015, 0.03));
-  // 4) 꿀럭 — 음정이 출렁이며 가라앉는 액체 글러그
+  // (프롬프트: soft malleable slime, wet squelchy sticky gooey, soft suction, elastic squish, rhythmic slap)
+  // 1) 젖은 철퍽 본체 — 부드럽고 깊게
+  noiseHit(t, 'lowpass', 1900 * p * v, 220, 1.6, 0.45, 0.22);
+  // 2) 리드미컬한 젖은 슬랩 두 번
+  noiseHit(t + rand(0.05, 0.08), 'lowpass', rand(700, 1100) * p, 250, 1.4, 0.26, 0.07);
+  noiseHit(t + rand(0.12, 0.16), 'lowpass', rand(500, 850) * p, 220, 1.4, 0.2, 0.07);
+  // 3) 부드러운 석션 — 쪼옥 빨려 올라갔다 가라앉는 톤
   const o = AC.createOscillator(); o.type = 'sine';
-  const f0 = 250 * p * v;
+  const f0 = 110 * p * v;
+  o.frequency.setValueAtTime(f0, t + 0.02);
+  o.frequency.exponentialRampToValueAtTime(f0 * 2.6, t + 0.1);
+  o.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + 0.22);
+  const g = AC.createGain(); env(g, t + 0.02, 0.025, 0.22, 0.22);
+  o.connect(g); g.connect(master); o.start(t + 0.02); o.stop(t + 0.32);
+  // 4) 깊고 묵직한 점액 바닥음
+  tone(t, 'sine', 95 * p * v, 45, 0.3, 0.01, 0.2);
+  // 5) 탄력 있는 미세 스트레치 결 (아주 작게)
+  noiseHit(t + rand(0.02, 0.1), 'bandpass', rand(1200, 2000), 600, 2, 0.07, 0.05);
+}
+/* 왁뿌볼 크랙 직후 따라붙는 끈적한 점액 꼬리 (gooey suction) */
+function thudTail(p){
+  const t = AC.currentTime + 0.16;   // 크랙이 먼저, 그 뒤 점액
+  noiseHit(t, 'lowpass', 900 * p, 180, 2, 0.22, 0.2);
+  noiseHit(t + 0.05, 'bandpass', rand(350, 550), 220, 1.6, 0.16, 0.12);
+  const o = AC.createOscillator(); o.type = 'sine';
+  const f0 = 130 * p;
   o.frequency.setValueAtTime(f0, t);
-  o.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + 0.06);
-  o.frequency.exponentialRampToValueAtTime(f0 * 0.75, t + 0.11);
-  o.frequency.exponentialRampToValueAtTime(f0 * 0.3, t + 0.2);
-  const g = AC.createGain(); env(g, t, 0.006, 0.25, 0.2);
-  o.connect(g); g.connect(master);
-  o.start(t); o.stop(t + 0.3);
+  o.frequency.exponentialRampToValueAtTime(f0 * 2.3, t + 0.08);
+  o.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + 0.2);
+  const g = AC.createGain(); env(g, t, 0.02, 0.18, 0.2);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.3);
 }
 /* 왁스 껍질 크랙 그레인 — 작은 조각 하나가 "짝" 하고 갈라지는 공명 핑 */
 function crackGrain(t, f, vol, pan){
@@ -273,7 +286,7 @@ function crackGrain(t, f, vol, pan){
 /* 왁뿌볼 — 자그작 빠지직 (실제 왁뿌볼 ASMR처럼 잘게 부서지는 크랙) + 쫀득함 */
 function playThud(p){
   if (!AC) return;
-  if (playSample('wak', p)) return;
+  if (playSample('wak', p)){ thudTail(p); return; }   // 녹음 크랙 유지 + 점액 꼬리 추가
   const t = AC.currentTime, v = rand(0.94, 1.06);
   // 1) 손에 쥐어 깨지는 부드러운 임팩트 (과하지 않게)
   tone(t, 'sine', 135 * p * v, 42, 0.42, 0.004, 0.12);
