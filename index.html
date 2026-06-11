@@ -121,10 +121,10 @@
 'use strict';
 /* ================= 기본 셋업 ================= */
 const cv = document.getElementById('game');
-const ctx = cv.getContext('2d');
+let ctx = cv.getContext('2d');
 let W, H, DPR;
 function resize(){
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  DPR = Math.min(window.devicePixelRatio || 1, 1.5);  // 픽셀 수를 줄여 프레임 확보
   W = window.innerWidth; H = window.innerHeight;
   cv.width = W * DPR; cv.height = H * DPR;
   cv.style.width = W + 'px'; cv.style.height = H + 'px';
@@ -377,14 +377,15 @@ function spawnObj(){
   const x = rand(W * 0.12, W * 0.88);
   const apex = H * rand(0.55, 0.85);
   const gold = type === 'slangi' && Math.random() < 0.06;   // 레어 황금 슬랑이
+  const pal = gold ? { light: '#fff8cf', main: '#ffd54d', dark: '#cf9a12' } : palFor(type);
+  const seed = rand(0, TAU);
   objs.push({
     type, x, y: H + R + 10, gold,
     vx: ((W / 2 - x) / W) * rand(80, 300) + rand(-50, 50),
     vy: -Math.sqrt(2 * GRAV() * apex),
     r: R, rot: rand(0, TAU), vrot: rand(-2, 2),
     phase: rand(0, TAU), hit: false, dead: false, iceFlash: 0,
-    pal: gold ? { light: '#fff8cf', main: '#ffd54d', dark: '#cf9a12' } : palFor(type),
-    seed: rand(0, TAU)
+    pal, seed, spr: makeSprite(type, R, pal, seed)
   });
 }
 
@@ -425,7 +426,7 @@ function sliceObj(o, ang){
       vx: o.vx * 0.5 + nx * side * imp + rand(-15, 15),
       vy: Math.min(o.vy, 0) * 0.35 - rand(10, 50),
       r: o.r, rot: ang, vrot: side * rand(0.6, 1.8),
-      side, life: 1.4, age: 0, phase: o.phase, pal: o.pal, seed: o.seed, wob
+      side, life: 1.4, age: 0, phase: o.phase, pal: o.pal, seed: o.seed, spr: o.spr, wob
     };
     pieces.push(pc); pair.push(pc);
   }
@@ -690,6 +691,21 @@ function roundRect(x, y, w, h, rr){
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
 }
+/* 스프라이트 캐시 — 등장 시 한 번만 그려두고 매 프레임 이미지로 찍음 (프레임 최적화) */
+const SPR_PAD = 1.4;
+function makeSprite(type, r, pal, seed){
+  const half = r * SPR_PAD;
+  const res = Math.min(window.devicePixelRatio || 1, 2);
+  const c = document.createElement('canvas');
+  c.width = c.height = Math.max(4, Math.ceil(half * 2 * res));
+  const sc = c.getContext('2d');
+  const old = ctx; ctx = sc;
+  ctx.setTransform(res, 0, 0, res, half * res, half * res);
+  drawShape(type, r, 0, pal, seed);
+  if (type === 'slangi') drawFace(r, 'slangi');
+  ctx = old;
+  return { c, half };
+}
 function drawObj(o){
   ctx.save();
   ctx.translate(o.x, o.y);
@@ -700,21 +716,24 @@ function drawObj(o){
   ctx.rotate(va); ctx.scale(1 + st, 1 - st * 0.75); ctx.rotate(-va);
   if (o.type === 'ice'){
     ctx.rotate(o.rot * 0.5);
-    drawShape('ice', o.r, o.phase);
+    ctx.drawImage(o.spr.c, -o.spr.half, -o.spr.half, o.spr.half * 2, o.spr.half * 2);
     if (o.iceFlash > 0){
       ctx.fillStyle = 'rgba(255,255,255,' + (o.iceFlash * 1.8) + ')';
       ctx.beginPath(); ctx.arc(0, 0, o.r * 1.1, 0, TAU); ctx.fill();
     }
   } else if (o.type === 'wak'){
     ctx.rotate(o.rot * 0.6);
-    drawShape('wak', o.r, o.phase, o.pal, o.seed);
+    const br = 0.04 * Math.sin(o.phase);
+    ctx.scale(1 + br, 1 - br);
+    ctx.drawImage(o.spr.c, -o.spr.half, -o.spr.half, o.spr.half * 2, o.spr.half * 2);
   } else {
     if (o.gold){   // 황금 슬랑이 후광 + 반짝임
       ctx.fillStyle = 'rgba(255,215,90,0.25)';
       ctx.beginPath(); ctx.arc(0, 0, o.r * 1.35 + Math.sin(o.phase * 2) * 3, 0, TAU); ctx.fill();
     }
-    drawShape('slangi', o.r, o.phase, o.pal, o.seed);
-    drawFace(o.r, 'slangi');
+    const br = 0.06 * Math.sin(o.phase);   // 말랑하게 숨쉬는 효과는 스케일로 (가벼움)
+    ctx.scale(1 + br, 1 - br);
+    ctx.drawImage(o.spr.c, -o.spr.half, -o.spr.half, o.spr.half * 2, o.spr.half * 2);
   }
   ctx.restore();
 }
@@ -735,7 +754,7 @@ function drawPiece(p){
   for (let i = 1; i <= 6; i++) ctx.lineTo(-R + (2 * R) * i / 6, edgeY(i));
   ctx.lineTo(R, p.side * R); ctx.lineTo(-R, p.side * R);
   ctx.closePath(); ctx.clip();
-  drawShape(p.type, p.r, p.phase, p.pal, p.seed);
+  ctx.drawImage(p.spr.c, -p.spr.half, -p.spr.half, p.spr.half * 2, p.spr.half * 2);
   // 끈적한 속살 단면
   ctx.strokeStyle = 'rgba(255,255,255,0.65)';
   ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -843,7 +862,7 @@ function syncHUD(){
 let lastT = performance.now();
 function loop(t){
   requestAnimationFrame(loop);
-  const dt = clamp((t - lastT) / 1000, 0, 0.033);
+  const dt = clamp((t - lastT) / 1000, 0, 0.045);
   lastT = t;
   if (state === ST.PLAY) update(dt);
   updateFx(dt);
