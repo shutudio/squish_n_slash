@@ -491,7 +491,7 @@ let paused = false;
 let score = 0, lives = 3, elapsed = 0, spawnT = 0, maxCombo = 0;
 let best = +(safeGet('sns_best') || 0);
 let objs = [], pieces = [], parts = [], pops = [], strands = [];
-let shake = 0, redFlash = 0, whiteFlash = 0, fever = 0, feverSec = 0;
+let shake = 0, redFlash = 0, whiteFlash = 0, fever = 0, feverSec = 0, hitstop = 0;
 let trail = [];
 let pdown = false, lastP = null;
 let strokeN = 0, strokeBase = 0, strokePts = [], lastSliceT = 0;
@@ -502,7 +502,7 @@ let shownScore = -1, shownLives = -1;
 function resetGame(){
   score = 0; lives = 3; elapsed = 0; spawnT = 0.6; maxCombo = 0; timeLeft = 60;
   objs = []; pieces = []; parts = []; pops = []; strands = [];
-  shake = 0; redFlash = 0; whiteFlash = 0; fever = 0; feverSec = 0; trail = [];
+  shake = 0; redFlash = 0; whiteFlash = 0; fever = 0; feverSec = 0; hitstop = 0; trail = [];
   strokeN = 0; strokeBase = 0; strokePts = [];
   overPending = false; shownScore = -1; shownLives = -1;
 }
@@ -715,6 +715,7 @@ function sliceObj(o, ang, a){
     tutCount++;
     if (tutCount >= TUT[tutStep].need) tutDelay = Math.max(tutDelay, 0.9);
   }
+  hitstop = Math.max(hitstop, (o.gold || o.rar === 4) ? 0.09 : 0.04);   // 자르는 순간 멈칫 (손맛)
   const pitch = 1 + 0.09 * (strokeN - 1);   // 콤보 시 음 높이 상승
   if (o.type === 'wak') playThud(pitch); else playSquish(pitch);
   buzz(15);
@@ -1348,8 +1349,10 @@ function loop(t){
   lastT = t;
   fpsAcc += raw; fpsN++;
   if (fpsAcc >= 0.5){ fpsEl.textContent = Math.round(fpsN / fpsAcc) + ' fps'; fpsAcc = 0; fpsN = 0; }
-  if (state === ST.PLAY && !paused) update(dt);
-  else if (state === ST.TUT && !paused) updateTut(dt);
+  let gdt = dt;
+  if (hitstop > 0){ hitstop -= dt; gdt = dt * 0.15; }   // 히트스톱: 찰나의 슬로모션
+  if (state === ST.PLAY && !paused) update(gdt);
+  else if (state === ST.TUT && !paused) updateTut(gdt);
   updateFx(dt);
   render();
   syncHUD();
