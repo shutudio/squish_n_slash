@@ -192,6 +192,7 @@
   </div>
   <button id="retryBtn" class="btn">다시하기</button>
   <div class="metaRow">
+    <button class="btn ghost" id="lobbyBtn">🏠 로비로</button>
     <button class="btn ghost openColl">📚 도감</button>
     <button class="btn ghost openGacha">🎁 뽑기</button>
     <button id="shareBtn" class="btn ghost">공유</button>
@@ -1275,6 +1276,12 @@ $('startBtn').addEventListener('click', () => {
   else startGame();
 });
 $('retryBtn').addEventListener('click', startGame);
+$('lobbyBtn').addEventListener('click', () => {
+  $('overScreen').classList.add('hidden');
+  $('startScreen').classList.remove('hidden');
+  state = ST.MENU;
+  refreshCoins();
+});
 $('tutSkip').addEventListener('click', endTutorial);
 /* ----- 설정 ----- */
 function syncSoundLabel(){
