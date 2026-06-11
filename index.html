@@ -99,6 +99,7 @@
     <div><span>🟢</span><span class="good">슬랑이</span><span>— 자른다!</span><span class="pt good">+10</span></div>
     <div><span>🟡</span><span class="bonus">왁뿌볼</span><span>— 부순다!</span><span class="pt bonus">+20</span></div>
     <div><span>🧊</span><span class="bad">딱딱이 얼음</span><span>— 피한다!</span><span class="pt bad">💔💔💔</span></div>
+    <div><span>✨</span><span class="bonus">황금 슬랑이</span><span>— 레어!</span><span class="pt bonus">+50</span></div>
   </div>
   <div class="subtitle">한 번에 여러 개 자르면 <b style="color:#ffd84d">콤보 보너스!</b> · 놓치면 생명 −1</div>
   <button id="startBtn" class="btn">시작하기</button>
@@ -365,13 +366,15 @@ function spawnObj(){
   const R = (type === 'ice' ? rand(30, 38) : type === 'wak' ? rand(32, 42) : rand(36, 47)) * sc;
   const x = rand(W * 0.12, W * 0.88);
   const apex = H * rand(0.55, 0.85);
+  const gold = type === 'slangi' && Math.random() < 0.06;   // 레어 황금 슬랑이
   objs.push({
-    type, x, y: H + R + 10,
+    type, x, y: H + R + 10, gold,
     vx: ((W / 2 - x) / W) * rand(80, 300) + rand(-50, 50),
     vy: -Math.sqrt(2 * GRAV() * apex),
     r: R, rot: rand(0, TAU), vrot: rand(-2, 2),
     phase: rand(0, TAU), hit: false, dead: false, iceFlash: 0,
-    pal: palFor(type), seed: rand(0, TAU)
+    pal: gold ? { light: '#fff8cf', main: '#ffd54d', dark: '#cf9a12' } : palFor(type),
+    seed: rand(0, TAU)
   });
 }
 
@@ -394,7 +397,7 @@ function sliceObj(o, ang){
   o.hit = true;
   if (o.type === 'ice'){ hitIce(o); return; }
   o.dead = true;
-  const base = o.type === 'wak' ? 20 : 10;
+  const base = o.gold ? 50 : o.type === 'wak' ? 20 : 10;
   strokeN++; strokeBase += base; score += base;
   lastSliceT = performance.now();
   strokePts.push({ x: o.x, y: o.y });
@@ -426,7 +429,9 @@ function sliceObj(o, ang){
       vx: rand(-18, 18), vy: rand(10, 50), r: rand(3.5, 6.5),
       color: o.type === 'wak' ? (Math.random() < 0.5 ? o.pal.a : o.pal.b) : o.pal.main,
       life: rand(0.7, 1.1), maxLife: 1.1 });
-  pops.push({ x: o.x, y: o.y - o.r, text: '+' + base, color: '#ffffff', life: 0.8, size: 22, vy: -90 });
+  pops.push({ x: o.x, y: o.y - o.r, text: (o.gold ? '✨+' : '+') + base,
+    color: o.gold ? '#ffd84d' : '#ffffff', life: o.gold ? 1.1 : 0.8, size: o.gold ? 30 : 22, vy: -90 });
+  if (o.gold){ whiteFlash = Math.max(whiteFlash, 0.25); burst(o.x, o.y, ['#fff3a8', '#ffd54d', '#ffffff'], 10, o.r); }
   if (strokeN >= 3) whiteFlash = Math.max(whiteFlash, 0.18);
 }
 function hitIce(o){
@@ -694,6 +699,10 @@ function drawObj(o){
     ctx.rotate(o.rot * 0.6);
     drawShape('wak', o.r, o.phase, o.pal, o.seed);
   } else {
+    if (o.gold){   // 황금 슬랑이 후광 + 반짝임
+      ctx.fillStyle = 'rgba(255,215,90,0.25)';
+      ctx.beginPath(); ctx.arc(0, 0, o.r * 1.35 + Math.sin(o.phase * 2) * 3, 0, TAU); ctx.fill();
+    }
     drawShape('slangi', o.r, o.phase, o.pal, o.seed);
     drawFace(o.r, 'slangi');
   }
