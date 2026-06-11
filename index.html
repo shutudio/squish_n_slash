@@ -154,6 +154,34 @@ function initAudio(){
   noiseBuffer = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
   const d = noiseBuffer.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  loadSamples();
+}
+/* ---------- 실제 사운드 샘플 (sounds/ 폴더에 파일이 있으면 합성음 대신 사용) ----------
+   파일명 규칙: sounds/slangi_1.mp3 ~ slangi_4.mp3, wak_1.mp3 ~, ice_1.mp3 ~ (1개 이상, 최대 4개) */
+const SAMPLES = { slangi: [], wak: [], ice: [] };
+let samplesRequested = false;
+function loadSamples(){
+  if (samplesRequested) return; samplesRequested = true;
+  for (const type of Object.keys(SAMPLES)){
+    for (let i = 1; i <= 4; i++){
+      fetch('sounds/' + type + '_' + i + '.mp3')
+        .then(r => { if (!r.ok) throw 0; return r.arrayBuffer(); })
+        .then(b => AC.decodeAudioData(b))
+        .then(buf => SAMPLES[type].push(buf))
+        .catch(() => {});
+    }
+  }
+}
+function playSample(type, pitch){
+  const arr = SAMPLES[type];
+  if (!AC || !arr.length) return false;
+  const s = AC.createBufferSource();
+  s.buffer = arr[(Math.random() * arr.length) | 0];
+  s.playbackRate.value = pitch * rand(0.96, 1.05);  // 콤보 피치 + 랜덤 변형
+  const g = AC.createGain(); g.gain.value = 0.9;
+  s.connect(g); g.connect(master);
+  s.start();
+  return true;
 }
 function env(g, t, atk, peak, dec){
   g.gain.setValueAtTime(0.0001, t);
@@ -191,7 +219,9 @@ function stickyPops(t, p, n, vol){
 }
 /* 슬랑이 — 꾸덕하고 쫀득한 슬라임 */
 function playSquish(p){
-  if (!AC) return; const t = AC.currentTime, v = rand(0.92, 1.08);
+  if (!AC) return;
+  if (playSample('slangi', p)) return;
+  const t = AC.currentTime, v = rand(0.92, 1.08);
   // 1) 꾸덕한 본체: 무게감 있는 저음 블럽 (아래로 휘어짐)
   tone(t, 'sine', 210 * p * v, 52, 0.55, 0.006, 0.24);
   // 2) 젖은 점성 질감: 고Q 로우패스 노이즈 스윕
@@ -226,7 +256,9 @@ function crackGrain(t, f, vol, pan){
 }
 /* 왁뿌볼 — 자그작 빠지직 (실제 왁뿌볼 ASMR처럼 잘게 부서지는 크랙) + 쫀득함 */
 function playThud(p){
-  if (!AC) return; const t = AC.currentTime, v = rand(0.94, 1.06);
+  if (!AC) return;
+  if (playSample('wak', p)) return;
+  const t = AC.currentTime, v = rand(0.94, 1.06);
   // 1) 손에 쥐어 깨지는 부드러운 임팩트 (과하지 않게)
   tone(t, 'sine', 135 * p * v, 42, 0.42, 0.004, 0.12);
   // 2) 자그작 빠지직 — 크랙 그레인 20여 개, 불규칙 간격, 점점 잦아듦
@@ -244,7 +276,9 @@ function playThud(p){
 }
 /* 얼음 — 차가운 "캉!" */
 function playClang(){
-  if (!AC) return; const t = AC.currentTime, v = rand(0.97, 1.03);
+  if (!AC) return;
+  if (playSample('ice', 1)) return;
+  const t = AC.currentTime, v = rand(0.97, 1.03);
   tone(t, 'triangle', 1780 * v, 1700 * v, 0.4, 0.002, 0.4);
   tone(t, 'triangle', 2650 * v, 2500 * v, 0.22, 0.002, 0.32);
   tone(t, 'square', 3550 * v, 3400 * v, 0.08, 0.002, 0.2);
