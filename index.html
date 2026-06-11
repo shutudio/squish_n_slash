@@ -64,7 +64,11 @@
   }
 
   /* ---------- 가챠 / 도감 ---------- */
-  .metaRow { display:flex; gap:10px; }
+  .metaRow { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; max-width:94vw; }
+  .metaRow .btn {
+    padding:12px 18px; font-size:clamp(14px, 3.6vw, 17px);
+    white-space:nowrap; flex-shrink:0;
+  }
   .coinBar { font-size:17px; font-weight:700; color:#ffd54d; }
   #collGrid {
     display:grid; grid-template-columns:repeat(4, minmax(68px, 80px)); gap:10px;
@@ -728,13 +732,10 @@ function finishStroke(){
       text: strokeN + ' 콤보! ×' + mult + ' +' + bonus, color: '#ffd84d', life: 1.2, size: 32, vy: -50 });
     playCombo(strokeN); whiteFlash = Math.max(whiteFlash, 0.3);
     buzz([20, 40, 25]);
-    if (strokeN >= 4 && state === ST.PLAY){   // 4콤보 이상이면 피버타임!
-      const fresh = fever <= 0;
-      fever = Math.max(fever, 4);   // 짧고 굵게, 대신 노 패널티
-      if (fresh){
-        pops.push({ x: W / 2, y: H * 0.35, text: '🔥 FEVER TIME!', color: '#ffd84d', life: 1.4, size: 40, vy: -30 });
-        whiteFlash = 0.5;
-      }
+    if (strokeN >= 4 && state === ST.PLAY && fever <= 0){   // 4콤보 → 피버! (피버 중 연장 없음)
+      fever = 4;
+      pops.push({ x: W / 2, y: H * 0.35, text: '🔥 FEVER TIME!', color: '#ffd84d', life: 1.4, size: 40, vy: -30 });
+      whiteFlash = 0.5;
     }
   } else if (strokeN === 1){
     maxCombo = Math.max(maxCombo, 1);
