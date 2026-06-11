@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Squish &amp; Slash</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body {
+    width:100%; height:100%; overflow:hidden;
+    background:#171232;
+    font-family:'Segoe UI', system-ui, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+    touch-action:none; overscroll-behavior:none;
+    user-select:none; -webkit-user-select:none;
+  }
+  #game { position:fixed; inset:0; display:block; }
+
+  /* ---------- HUD ---------- */
+  #hud {
+    position:fixed; top:0; left:0; right:0;
+    padding:max(12px, env(safe-area-inset-top)) 16px 0;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    pointer-events:none; z-index:5; color:#fff;
+  }
+  #scoreEl {
+    font-size:clamp(26px, 6vw, 40px); font-weight:800;
+    text-shadow:0 2px 8px rgba(0,0,0,.5);
+    font-variant-numeric:tabular-nums;
+  }
+  #rightHud { display:flex; align-items:center; gap:12px; }
+  #heartsEl { font-size:clamp(22px, 5vw, 32px); letter-spacing:2px; text-shadow:0 2px 6px rgba(0,0,0,.5); }
+  #heartsEl .lost { opacity:.22; filter:grayscale(1); }
+  #muteBtn {
+    pointer-events:auto; background:rgba(255,255,255,.12); border:none;
+    border-radius:50%; width:42px; height:42px; font-size:20px; cursor:pointer;
+    color:#fff; backdrop-filter:blur(4px);
+  }
+
+  /* ---------- Overlays ---------- */
+  .overlay {
+    position:fixed; inset:0; z-index:10;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; color:#fff; gap:14px; padding:24px;
+    background:radial-gradient(ellipse at 50% 35%, rgba(70,50,140,.55), rgba(15,10,35,.92) 75%);
+    backdrop-filter:blur(3px);
+  }
+  .overlay.hidden { display:none; }
+  .title {
+    font-size:clamp(40px, 11vw, 72px); font-weight:900; line-height:1.05;
+    background:linear-gradient(135deg, #8df57a 15%, #ffd84d 55%, #8fd9ff 90%);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 4px 14px rgba(0,0,0,.45));
+  }
+  .subtitle { font-size:clamp(14px, 3.6vw, 18px); opacity:.85; }
+  .legend {
+    display:flex; flex-direction:column; gap:8px; margin:10px 0;
+    font-size:clamp(14px, 3.6vw, 17px);
+    background:rgba(255,255,255,.07); padding:16px 22px; border-radius:16px;
+  }
+  .legend div { display:flex; align-items:center; gap:10px; }
+  .legend .pt { margin-left:auto; font-weight:700; padding-left:18px; }
+  .good { color:#9bf08b; } .bonus { color:#ffd84d; } .bad { color:#9fd8ff; }
+  .btn {
+    font-size:clamp(18px, 4.6vw, 24px); font-weight:800; color:#241a4d;
+    background:linear-gradient(180deg, #ffe98a, #ffc933);
+    border:none; border-radius:999px; padding:16px 52px; cursor:pointer;
+    box-shadow:0 6px 0 #c98f12, 0 10px 24px rgba(0,0,0,.4);
+    transition:transform .08s;
+  }
+  .btn:active { transform:translateY(4px); box-shadow:0 2px 0 #c98f12; }
+  .btn.ghost {
+    background:rgba(255,255,255,.12); color:#fff; box-shadow:none;
+    font-size:clamp(15px, 3.8vw, 18px); padding:12px 36px;
+  }
+  .stats { display:flex; flex-direction:column; gap:6px; margin:6px 0 10px; }
+  .stats .big { font-size:clamp(48px, 13vw, 84px); font-weight:900; color:#ffd84d; text-shadow:0 4px 16px rgba(0,0,0,.5); font-variant-numeric:tabular-nums; }
+  .stats .row { font-size:clamp(15px, 4vw, 19px); opacity:.9; }
+  .newBest { color:#8df57a; font-weight:800; animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { transform:scale(1.08); } }
+  #overTitle { font-size:clamp(30px, 8vw, 48px); font-weight:900; }
+  .hint { font-size:13px; opacity:.55; margin-top:6px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="scoreEl">0</div>
+  <div id="rightHud">
+    <div id="heartsEl"></div>
+    <button id="muteBtn" title="소리 켜기/끄기">🔊</button>
+  </div>
+</div>
+
+<div id="startScreen" class="overlay">
+  <div class="title">Squish &amp; Slash</div>
+  <div class="subtitle">말랑한 슬랑이를 자르고, 왁뿌볼을 부수자!</div>
+  <div class="legend">
+    <div><span>🟢</span><span class="good">슬랑이</span><span>— 자른다!</span><span class="pt good">+10</span></div>
+    <div><span>🟡</span><span class="bonus">왁뿌볼</span><span>— 부순다!</span><span class="pt bonus">+20</span></div>
+    <div><span>🧊</span><span class="bad">딱딱이 얼음</span><span>— 피한다!</span><span class="pt bad">💔💔💔</span></div>
+  </div>
+  <div class="subtitle">한 번에 여러 개 자르면 <b style="color:#ffd84d">콤보 보너스!</b> · 놓치면 생명 −1</div>
+  <button id="startBtn" class="btn">시작하기</button>
+  <div class="hint">손가락(마우스)을 드래그해서 슬라이스 ✦ 소리를 켜고 플레이하세요 🎧</div>
+</div>
+
+<div id="overScreen" class="overlay hidden">
+  <div id="overTitle">게임 오버!</div>
+  <div class="stats">
+    <div class="big" id="finalScore">0</div>
+    <div class="row">🔥 최고 콤보 <b id="finalCombo">0</b></div>
+    <div class="row">🏆 최고 기록 <b id="finalBest">0</b> <span id="newBestTag" class="newBest hidden">NEW BEST!</span></div>
+  </div>
+  <button id="retryBtn" class="btn">다시하기</button>
+  <button id="shareBtn" class="btn ghost">공유하기</button>
+</div>
+
+<script>
+'use strict';
+/* ================= 기본 셋업 ================= */
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+let W, H, DPR;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+}
+window.addEventListener('resize', resize); resize();
+
+const TAU = Math.PI * 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const GRAV = () => H * 1.35;
+
+const $ = id => document.getElementById(id);
+const scoreEl = $('scoreEl'), heartsEl = $('heartsEl');
+
+function safeGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function safeSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+
+/* ================= 사운드 (Web Audio 합성 / ASMR) ================= */
+let AC = null, master = null, muted = false, noiseBuffer = null;
+function initAudio(){
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  AC = new (window.AudioContext || window.webkitAudioContext)();
+  master = AC.createGain(); master.gain.value = muted ? 0 : 0.8;
+  const comp = AC.createDynamicsCompressor();   // 레이어 겹침 시 클리핑 방지
+  comp.threshold.value = -14; comp.knee.value = 20; comp.ratio.value = 6;
+  comp.attack.value = 0.002; comp.release.value = 0.12;
+  master.connect(comp); comp.connect(AC.destination);
+  noiseBuffer = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
+  const d = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+}
+function env(g, t, atk, peak, dec){
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(peak, t + atk);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + atk + dec);
+}
+function noiseHit(t, type, f0, f1, q, peak, dur){
+  const s = AC.createBufferSource(); s.buffer = noiseBuffer;
+  const f = AC.createBiquadFilter(); f.type = type; f.Q.value = q;
+  f.frequency.setValueAtTime(f0, t);
+  f.frequency.exponentialRampToValueAtTime(Math.max(f1, 30), t + dur);
+  const g = AC.createGain(); env(g, t, 0.004, peak, dur);
+  s.connect(f); f.connect(g); g.connect(master);
+  s.start(t); s.stop(t + dur + 0.1);
+}
+function tone(t, type, f0, f1, peak, atk, dur){
+  const o = AC.createOscillator(); o.type = type;
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(f1, 20), t + dur);
+  const g = AC.createGain(); env(g, t, atk, peak, dur);
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t + atk + dur + 0.1);
+}
+/* 쫀득한 마이크로 팝 — 끈적한 기포가 늘어났다 터지는 질감 */
+function stickyPops(t, p, n, vol){
+  let tc = 0.012;
+  for (let i = 0; i < n; i++){
+    const f = rand(320, 850) * p;
+    noiseHit(t + tc, 'bandpass', f, f * 0.45, 13, vol * rand(0.6, 1), rand(0.02, 0.05));
+    // 팝마다 살짝 위로 휘는 점성 챠프 (쪼-옥 늘어나는 느낌)
+    if (Math.random() < 0.6)
+      tone(t + tc, 'sine', rand(110, 200) * p, rand(280, 460) * p, vol * 0.35, 0.008, rand(0.04, 0.08));
+    tc += rand(0.022, 0.05);
+  }
+}
+/* 슬랑이 — 꾸덕하고 쫀득한 슬라임 */
+function playSquish(p){
+  if (!AC) return; const t = AC.currentTime, v = rand(0.92, 1.08);
+  // 1) 꾸덕한 본체: 무게감 있는 저음 블럽 (아래로 휘어짐)
+  tone(t, 'sine', 210 * p * v, 52, 0.55, 0.006, 0.24);
+  // 2) 젖은 점성 질감: 고Q 로우패스 노이즈 스윕
+  noiseHit(t, 'lowpass', 850 * p * v, 130, 9, 0.42, 0.22);
+  // 3) 쫀득쫀득: 끈적한 기포 팝 4~6개
+  stickyPops(t, p * v, 4 + ((Math.random() * 3) | 0), 0.3);
+  // 4) 끈적하게 붙었다 떨어지는 꼬리 (쪽-)
+  tone(t + 0.1, 'sine', 130 * p, 360 * p, 0.13, 0.012, 0.11);
+}
+/* 왁뿌볼 — "파바박" 왁스 크랙 + 뒤따르는 쫀득함 */
+function playThud(p){
+  if (!AC) return; const t = AC.currentTime, v = rand(0.93, 1.07);
+  // 1) 퍽 — 임팩트 본체
+  tone(t, 'sine', 150 * p * v, 42, 0.6, 0.003, 0.14);
+  noiseHit(t, 'lowpass', 480 * v, 110, 1, 0.35, 0.1);
+  // 2) 파바박! — 고음 크랙 클러스터 (왁스 깨짐)
+  const nCr = 5 + ((Math.random() * 4) | 0);
+  let tc = 0;
+  for (let i = 0; i < nCr; i++){
+    noiseHit(t + tc, 'highpass', rand(2400, 5200) * v, 6500, 1, 0.45 * Math.pow(0.84, i), rand(0.01, 0.025));
+    noiseHit(t + tc, 'bandpass', rand(1100, 1900) * v, 800, 6, 0.22 * Math.pow(0.84, i), rand(0.012, 0.03));
+    tc += rand(0.012, 0.03);
+  }
+  // 3) 깨진 뒤 속살의 쫀득함 (~90ms 후, 살짝 작게)
+  const ts = t + 0.09;
+  tone(ts, 'sine', 170 * p * v, 58, 0.26, 0.008, 0.16);
+  stickyPops(ts, p * v, 3, 0.2);
+}
+/* 얼음 — 차가운 "캉!" */
+function playClang(){
+  if (!AC) return; const t = AC.currentTime, v = rand(0.97, 1.03);
+  tone(t, 'triangle', 1780 * v, 1700 * v, 0.4, 0.002, 0.4);
+  tone(t, 'triangle', 2650 * v, 2500 * v, 0.22, 0.002, 0.32);
+  tone(t, 'square', 3550 * v, 3400 * v, 0.08, 0.002, 0.2);
+  noiseHit(t, 'highpass', 3000, 6000, 1, 0.3, 0.08);
+}
+/* 콤보 — 음이 단계적으로 상승 */
+function playCombo(n){
+  if (!AC) return; const t = AC.currentTime;
+  const steps = Math.min(n, 6);
+  for (let i = 0; i < steps; i++)
+    tone(t + i * 0.055, 'sine', 620 * Math.pow(2, i / 7), 620 * Math.pow(2, i / 7), 0.22, 0.005, 0.14);
+}
+function playMiss(){ if (AC) tone(AC.currentTime, 'sine', 300, 110, 0.16, 0.01, 0.25); }
+function playOver(){
+  if (!AC) return; const t = AC.currentTime;
+  [440, 350, 262].forEach((f, i) => tone(t + i * 0.22, 'triangle', f, f * 0.97, 0.25, 0.01, 0.3));
+}
+function buzz(p){ if (navigator.vibrate) { try { navigator.vibrate(p); } catch(e){} } }
+
+/* ================= 게임 상태 ================= */
+const ST = { MENU: 0, PLAY: 1, OVER: 2 };
+let state = ST.MENU;
+let score = 0, lives = 3, elapsed = 0, spawnT = 0, maxCombo = 0;
+let best = +(safeGet('sns_best') || 0);
+let objs = [], pieces = [], parts = [], pops = [];
+let shake = 0, redFlash = 0, whiteFlash = 0;
+let trail = [];
+let pdown = false, lastP = null;
+let strokeN = 0, strokeBase = 0, strokePts = [];
+let overPending = false, overDelay = 0;
+let shownScore = -1, shownLives = -1;
+
+function resetGame(){
+  score = 0; lives = 3; elapsed = 0; spawnT = 0.6; maxCombo = 0;
+  objs = []; pieces = []; parts = []; pops = [];
+  shake = 0; redFlash = 0; whiteFlash = 0; trail = [];
+  strokeN = 0; strokeBase = 0; strokePts = [];
+  overPending = false; shownScore = -1; shownLives = -1;
+}
+
+/* ================= 오브젝트 ================= */
+const COLORS = {
+  slangi: { main: '#6ee05a', dark: '#3da32f', light: '#b6f7a8', part: ['#8af075', '#5cd14a', '#caffba'] },
+  wak:    { main: '#ffc933', dark: '#d98f12', light: '#ffe98a', part: ['#ffd84d', '#e8a724', '#fff3b0'] },
+  ice:    { main: '#bfe9ff', dark: '#6fb6e8', light: '#f0fbff', part: ['#dff4ff', '#9fd8ff', '#ffffff'] }
+};
+
+function spawnWave(){
+  const diff = clamp(elapsed / 60, 0, 1);
+  let n = 1;
+  if (Math.random() < 0.3 + diff * 0.5) n++;
+  if (Math.random() < diff * 0.5) n++;
+  if (Math.random() < diff * 0.25) n++;
+  for (let i = 0; i < n; i++) spawnObj();
+}
+function spawnObj(){
+  const diff = clamp(elapsed / 60, 0, 1);
+  const icep = elapsed < 6 ? 0 : Math.min(0.05 + diff * 0.17, 0.22);
+  const r1 = Math.random();
+  const type = r1 < icep ? 'ice' : (r1 < icep + 0.22 ? 'wak' : 'slangi');
+  const sc = clamp(Math.min(W, H) / 700, 0.75, 1.3);
+  const R = (type === 'ice' ? rand(30, 38) : type === 'wak' ? rand(32, 42) : rand(36, 47)) * sc;
+  const x = rand(W * 0.12, W * 0.88);
+  const apex = H * rand(0.55, 0.85);
+  objs.push({
+    type, x, y: H + R + 10,
+    vx: ((W / 2 - x) / W) * rand(80, 300) + rand(-50, 50),
+    vy: -Math.sqrt(2 * GRAV() * apex),
+    r: R, rot: rand(0, TAU), vrot: rand(-2, 2),
+    phase: rand(0, TAU), hit: false, dead: false, iceFlash: 0
+  });
+}
+
+/* ================= 슬라이스 ================= */
+function segDist(a, b, o){
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const l2 = dx * dx + dy * dy || 1;
+  let t = ((o.x - a.x) * dx + (o.y - a.y) * dy) / l2;
+  t = clamp(t, 0, 1);
+  return Math.hypot(o.x - (a.x + dx * t), o.y - (a.y + dy * t));
+}
+function sliceSegment(a, b){
+  const ang = Math.atan2(b.y - a.y, b.x - a.x);
+  for (const o of objs){
+    if (o.hit || o.dead) continue;
+    if (segDist(a, b, o) < o.r * 0.95) sliceObj(o, ang);
+  }
+}
+function sliceObj(o, ang){
+  o.hit = true;
+  if (o.type === 'ice'){ hitIce(o); return; }
+  o.dead = true;
+  const base = o.type === 'wak' ? 20 : 10;
+  strokeN++; strokeBase += base; score += base;
+  strokePts.push({ x: o.x, y: o.y });
+  const pitch = 1 + 0.09 * (strokeN - 1);   // 콤보 시 음 높이 상승
+  if (o.type === 'wak') playThud(pitch); else playSquish(pitch);
+  buzz(15);
+  // 두 조각 분리 (각각 물리 적용)
+  const nx = Math.sin(ang), ny = -Math.cos(ang);
+  for (const side of [-1, 1]){
+    const imp = rand(130, 230);
+    pieces.push({
+      type: o.type, x: o.x + nx * side * 4, y: o.y + ny * side * 4,
+      vx: o.vx * 0.6 + nx * side * imp + rand(-30, 30),
+      vy: Math.min(o.vy, 0) * 0.4 - rand(40, 130),
+      r: o.r, rot: ang, vrot: side * rand(2.5, 6),
+      side, life: 1.3, phase: o.phase
+    });
+  }
+  burst(o.x, o.y, COLORS[o.type].part, o.type === 'wak' ? 16 : 13, o.r);
+  pops.push({ x: o.x, y: o.y - o.r, text: '+' + base, color: COLORS[o.type].light, life: 0.8, size: 22, vy: -90 });
+  if (strokeN >= 3) whiteFlash = Math.max(whiteFlash, 0.18);
+}
+function hitIce(o){
+  lives = Math.max(0, lives - 3);
+  strokeN = 0; strokeBase = 0; strokePts = [];
+  shake = 18; redFlash = 0.9; o.iceFlash = 0.4;
+  o.vrot = rand(-8, 8); o.vx += rand(-120, 120);   // 칼이 튕기는 느낌
+  playClang(); buzz(120);
+  burst(o.x, o.y, COLORS.ice.part, 14, o.r);
+  pops.push({ x: o.x, y: o.y - o.r, text: '❄ 콤보 끊김!', color: '#cfeeff', life: 1, size: 24, vy: -60 });
+  checkDeath();
+}
+function finishStroke(){
+  if (strokeN >= 2){
+    const mult = strokeN === 2 ? 1.2 : strokeN === 3 ? 1.5 : 2.0;
+    const bonus = Math.round(strokeBase * (mult - 1));
+    score += bonus;
+    maxCombo = Math.max(maxCombo, strokeN);
+    let mx = 0, my = 0;
+    for (const p of strokePts){ mx += p.x; my += p.y; }
+    mx /= strokePts.length; my /= strokePts.length;
+    pops.push({ x: clamp(mx, W * 0.2, W * 0.8), y: clamp(my, H * 0.25, H * 0.7),
+      text: strokeN + ' 콤보! ×' + mult + ' +' + bonus, color: '#ffd84d', life: 1.2, size: 32, vy: -50 });
+    playCombo(strokeN); whiteFlash = Math.max(whiteFlash, 0.3);
+    buzz([20, 40, 25]);
+  } else if (strokeN === 1){
+    maxCombo = Math.max(maxCombo, 1);
+  }
+  strokeN = 0; strokeBase = 0; strokePts = [];
+}
+function missObj(o){
+  lives = Math.max(0, lives - 1);
+  strokeN = 0; strokeBase = 0; strokePts = [];
+  playMiss();
+  pops.push({ x: clamp(o.x, 60, W - 60), y: H - 60, text: '놓침! −💗', color: '#ff8a9a', life: 0.9, size: 20, vy: -60 });
+  checkDeath();
+}
+function checkDeath(){
+  if (lives <= 0 && state === ST.PLAY && !overPending){
+    overPending = true; overDelay = 0.9;
+  }
+}
+
+/* ================= 파티클 / 팝업 ================= */
+function burst(x, y, colors, n, r){
+  for (let i = 0; i < n; i++){
+    const a = rand(0, TAU), sp = rand(80, 380);
+    parts.push({
+      x: x + rand(-r, r) * 0.4, y: y + rand(-r, r) * 0.4,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - rand(40, 160),
+      r: rand(3, 8), color: colors[(Math.random() * colors.length) | 0],
+      life: rand(0.5, 0.95), maxLife: 1
+    });
+  }
+}
+
+/* ================= 입력 ================= */
+function getPos(e){ return { x: e.clientX, y: e.clientY }; }
+document.addEventListener('pointerdown', e => {
+  initAudio();
+  if (state !== ST.PLAY) return;
+  pdown = true; lastP = getPos(e);
+  trail.length = 0; trail.push({ x: lastP.x, y: lastP.y, t: performance.now() });
+  strokeN = 0; strokeBase = 0; strokePts = [];
+});
+document.addEventListener('pointermove', e => {
+  if (!pdown || state !== ST.PLAY) return;
+  const p = getPos(e);
+  if (Math.hypot(p.x - lastP.x, p.y - lastP.y) < 3) return;
+  trail.push({ x: p.x, y: p.y, t: performance.now() });
+  if (trail.length > 40) trail.shift();
+  sliceSegment(lastP, p);
+  lastP = p;
+});
+function ptrUp(){
+  if (!pdown) return;
+  pdown = false;
+  if (state === ST.PLAY) finishStroke();
+}
+document.addEventListener('pointerup', ptrUp);
+document.addEventListener('pointercancel', ptrUp);
+
+/* ================= 업데이트 ================= */
+function update(dt){
+  elapsed += dt; spawnT -= dt;
+  if (spawnT <= 0 && !overPending){
+    spawnWave();
+    spawnT = Math.max(0.85, 1.7 - elapsed * 0.012) * rand(0.8, 1.2);
+  }
+  const g = GRAV();
+  for (const o of objs){
+    o.vy += g * dt; o.x += o.vx * dt; o.y += o.vy * dt;
+    o.rot += o.vrot * dt; o.phase += dt * 7;
+    if (o.iceFlash > 0) o.iceFlash -= dt;
+    if ((o.x < o.r && o.vx < 0) || (o.x > W - o.r && o.vx > 0)) o.vx *= -1;
+    if (!o.dead && o.vy > 0 && o.y > H + o.r + 30){
+      o.dead = true;
+      if (o.type !== 'ice' && !o.hit && !overPending) missObj(o);
+    }
+  }
+  objs = objs.filter(o => !o.dead);
+  for (const p of pieces){
+    p.vy += g * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    p.rot += p.vrot * dt; p.life -= dt;
+  }
+  pieces = pieces.filter(p => p.life > 0 && p.y < H + 200);
+  if (overPending){
+    overDelay -= dt;
+    if (overDelay <= 0) gameOver();
+  }
+}
+function updateFx(dt){
+  shake = Math.max(0, shake - 70 * dt);
+  redFlash = Math.max(0, redFlash - 2.2 * dt);
+  whiteFlash = Math.max(0, whiteFlash - 2.5 * dt);
+  for (const p of parts){
+    p.vy += GRAV() * 0.7 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+  }
+  parts = parts.filter(p => p.life > 0);
+  for (const p of pops){ p.y += p.vy * dt; p.life -= dt; }
+  pops = pops.filter(p => p.life > 0);
+  const now = performance.now();
+  while (trail.length && now - trail[0].t > 130) trail.shift();
+}
+
+/* ================= 그리기 ================= */
+let bgGrad = null, bgKey = '';
+function drawBG(){
+  const key = W + 'x' + H;
+  if (key !== bgKey){
+    bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, '#241b4d');
+    bgGrad.addColorStop(0.6, '#171232');
+    bgGrad.addColorStop(1, '#0e0a22');
+    bgKey = key;
+  }
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+  // 은은한 바닥 글로우
+  ctx.fillStyle = 'rgba(120, 90, 220, 0.07)';
+  ctx.beginPath(); ctx.ellipse(W / 2, H + 40, W * 0.7, 120, 0, 0, TAU); ctx.fill();
+}
+function drawShape(type, r, phase){
+  const c = COLORS[type];
+  if (type === 'ice'){
+    const s = r * 0.92;
+    const grd = ctx.createLinearGradient(-s, -s, s, s);
+    grd.addColorStop(0, 'rgba(240,251,255,0.95)');
+    grd.addColorStop(0.5, 'rgba(168,219,250,0.9)');
+    grd.addColorStop(1, 'rgba(111,182,232,0.95)');
+    ctx.fillStyle = grd;
+    roundRect(-s, -s, s * 2, s * 2, r * 0.25); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 3;
+    roundRect(-s, -s, s * 2, s * 2, r * 0.25); ctx.stroke();
+    // 성에 반짝임
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-s * 0.45, -s * 0.1); ctx.lineTo(-s * 0.1, -s * 0.45); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-s * 0.45, s * 0.35); ctx.lineTo(s * 0.35, -s * 0.45); ctx.stroke();
+    return;
+  }
+  // 말랑 블롭 (슬랑이 / 왁뿌볼)
+  const wob = type === 'slangi' ? 0.05 * Math.sin(phase) : 0;
+  ctx.save();
+  ctx.scale(1 + wob, 1 - wob);
+  const grd = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.15, 0, 0, r * 1.05);
+  grd.addColorStop(0, c.light);
+  grd.addColorStop(0.55, c.main);
+  grd.addColorStop(1, c.dark);
+  ctx.fillStyle = grd;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+  if (type === 'wak'){
+    // 왁스 결 무늬
+    ctx.strokeStyle = 'rgba(180,110,20,0.45)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.62, 0.4, 2.2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.82, 3.3, 4.9); ctx.stroke();
+  }
+  // 하이라이트
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath(); ctx.ellipse(-r * 0.35, -r * 0.42, r * 0.22, r * 0.13, -0.6, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawFace(r, type){
+  ctx.fillStyle = '#26321e';
+  ctx.beginPath(); ctx.arc(-r * 0.3, -r * 0.08, r * 0.09, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(r * 0.3, -r * 0.08, r * 0.09, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#26321e'; ctx.lineWidth = Math.max(2, r * 0.07); ctx.lineCap = 'round';
+  ctx.beginPath();
+  if (type === 'slangi') ctx.arc(0, r * 0.12, r * 0.22, 0.25, Math.PI - 0.25);
+  else ctx.arc(0, r * 0.3, r * 0.18, Math.PI + 0.4, TAU - 0.4); // 왁뿌볼은 입 꾹
+  ctx.stroke();
+}
+function roundRect(x, y, w, h, rr){
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+function drawObj(o){
+  ctx.save();
+  ctx.translate(o.x, o.y);
+  // 스쿼시 & 스트레치 (속도 방향으로 늘어남)
+  const sp = Math.hypot(o.vx, o.vy);
+  const st = clamp(sp / 2400, 0, 0.26);
+  const va = Math.atan2(o.vy, o.vx);
+  ctx.rotate(va); ctx.scale(1 + st, 1 - st * 0.75); ctx.rotate(-va);
+  if (o.type === 'ice'){
+    ctx.rotate(o.rot * 0.5);
+    drawShape('ice', o.r, o.phase);
+    if (o.iceFlash > 0){
+      ctx.fillStyle = 'rgba(255,255,255,' + (o.iceFlash * 1.8) + ')';
+      ctx.beginPath(); ctx.arc(0, 0, o.r * 1.1, 0, TAU); ctx.fill();
+    }
+  } else {
+    if (o.type === 'wak') ctx.rotate(o.rot);
+    drawShape(o.type, o.r, o.phase);
+    if (o.type === 'wak') ctx.rotate(-o.rot);
+    drawFace(o.r, o.type);
+  }
+  ctx.restore();
+}
+function drawPiece(p){
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.rot);
+  ctx.globalAlpha = p.life < 0.45 ? p.life / 0.45 : 1;
+  // 절단선 기준 절반만 클리핑
+  ctx.beginPath();
+  ctx.rect(-p.r * 1.7, p.side < 0 ? -p.r * 1.7 : 1, p.r * 3.4, p.r * 1.7);
+  ctx.clip();
+  drawShape(p.type, p.r, p.phase);
+  // 단면
+  ctx.strokeStyle = p.type === 'wak' ? 'rgba(255,240,180,0.9)' : 'rgba(220,255,205,0.9)';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(-p.r, p.side * 2); ctx.lineTo(p.r, p.side * 2); ctx.stroke();
+  ctx.restore();
+}
+function drawTrail(){
+  if (trail.length < 2) return;
+  const now = performance.now();
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let pass = 0; pass < 2; pass++){
+    for (let i = 1; i < trail.length; i++){
+      const a = trail[i - 1], b = trail[i];
+      const age = 1 - (now - b.t) / 130;
+      if (age <= 0) continue;
+      const frac = i / trail.length;
+      ctx.strokeStyle = pass === 0
+        ? 'rgba(140,210,255,' + (0.25 * age) + ')'
+        : 'rgba(255,255,255,' + (0.85 * age) + ')';
+      ctx.lineWidth = (pass === 0 ? 16 : 6) * frac * age + 1;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+function drawParticles(){
+  for (const p of parts){
+    ctx.globalAlpha = clamp(p.life / p.maxLife, 0, 1);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawPops(){
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const p of pops){
+    const a = clamp(p.life / 0.4, 0, 1);
+    ctx.globalAlpha = a;
+    ctx.font = '900 ' + p.size + "px 'Segoe UI', system-ui, sans-serif";
+    ctx.strokeStyle = 'rgba(20,10,40,0.8)'; ctx.lineWidth = 4;
+    ctx.strokeText(p.text, p.x, p.y);
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.text, p.x, p.y);
+  }
+  ctx.globalAlpha = 1;
+}
+function render(){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawBG();
+  if (shake > 0) ctx.translate(rand(-shake, shake), rand(-shake, shake));
+  for (const p of pieces) drawPiece(p);
+  for (const o of objs) drawObj(o);
+  drawParticles();
+  drawTrail();
+  drawPops();
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (whiteFlash > 0){
+    ctx.fillStyle = 'rgba(255,255,255,' + whiteFlash * 0.4 + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (redFlash > 0){
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.7);
+    g.addColorStop(0, 'rgba(255,40,40,0)');
+    g.addColorStop(1, 'rgba(255,40,40,' + redFlash * 0.5 + ')');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+/* ================= HUD ================= */
+function syncHUD(){
+  if (score !== shownScore){ scoreEl.textContent = score; shownScore = score; }
+  if (lives !== shownLives){
+    let h = '';
+    for (let i = 0; i < 3; i++) h += '<span' + (i < lives ? '' : ' class="lost"') + '>💗</span>';
+    heartsEl.innerHTML = h;
+    shownLives = lives;
+  }
+}
+
+/* ================= 루프 ================= */
+let lastT = performance.now();
+function loop(t){
+  requestAnimationFrame(loop);
+  const dt = clamp((t - lastT) / 1000, 0, 0.033);
+  lastT = t;
+  if (state === ST.PLAY) update(dt);
+  updateFx(dt);
+  render();
+  syncHUD();
+}
+requestAnimationFrame(loop);
+
+/* ================= 화면 전환 ================= */
+function startGame(){
+  initAudio();
+  resetGame();
+  $('startScreen').classList.add('hidden');
+  $('overScreen').classList.add('hidden');
+  state = ST.PLAY;
+  syncHUD();
+}
+function gameOver(){
+  state = ST.OVER;
+  playOver(); buzz([60, 50, 120]);
+  const isNew = score > best;
+  if (isNew){ best = score; safeSet('sns_best', best); }
+  $('finalScore').textContent = score;
+  $('finalCombo').textContent = maxCombo;
+  $('finalBest').textContent = best;
+  $('newBestTag').classList.toggle('hidden', !isNew);
+  $('overScreen').classList.remove('hidden');
+}
+$('startBtn').addEventListener('click', startGame);
+$('retryBtn').addEventListener('click', startGame);
+$('shareBtn').addEventListener('click', async () => {
+  const text = 'Squish & Slash에서 ' + score + '점 달성! 🔪 최고 콤보 ' + maxCombo + '!';
+  if (navigator.share){
+    try { await navigator.share({ title: 'Squish & Slash', text }); } catch(e){}
+  } else {
+    try { await navigator.clipboard.writeText(text); alert('점수가 클립보드에 복사됐어요!'); } catch(e){}
+  }
+});
+$('muteBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  muted = !muted;
+  $('muteBtn').textContent = muted ? '🔇' : '🔊';
+  if (master) master.gain.value = muted ? 0 : 0.8;
+});
+syncHUD();
+lives = 3; shownLives = -1; syncHUD();
+</script>
+</body>
+</html>
