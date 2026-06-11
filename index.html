@@ -4,7 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Squish &amp; Slash</title>
+<meta name="theme-color" content="#171232">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
+  .hidden { display:none !important; }
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body {
     width:100%; height:100%; overflow:hidden;
@@ -97,6 +102,19 @@
   .gcard { display:flex; flex-direction:column; align-items:center; gap:1px; font-size:10px; font-weight:700; opacity:0; transform:scale(.5); transition:all .25s; }
   .gcard.show { opacity:1; transform:scale(1); }
   .gcard canvas { width:48px; height:48px; }
+  #dailyBar { font-size:14px; color:#8df57a; font-weight:700; }
+  #achList { display:flex; flex-direction:column; gap:8px; max-height:52vh; overflow-y:auto; width:min(92vw, 420px); }
+  .ach { display:flex; align-items:center; gap:10px; background:rgba(255,255,255,.07); padding:10px 14px; border-radius:12px; text-align:left; }
+  .ach .ainfo { flex:1; min-width:0; }
+  .ach .anm { font-size:14px; font-weight:800; }
+  .ach .adesc { font-size:11px; opacity:.7; }
+  .ach .aprog { font-size:11px; color:#9fd6ff; font-weight:700; }
+  .achBtn {
+    background:linear-gradient(180deg,#ffe98a,#ffc933); color:#241a4d; border:none;
+    border-radius:999px; padding:8px 14px; font-weight:800; cursor:pointer; font-size:13px;
+    white-space:nowrap; flex-shrink:0;
+  }
+  .achBtn[disabled] { background:rgba(255,255,255,.15); color:#9a94b8; }
 
   /* ---------- Overlays ---------- */
   .overlay {
@@ -183,10 +201,13 @@
   <div class="subtitle">한 번에 여러 개 자르면 <b style="color:#ffd84d">콤보 보너스!</b> · 놓치면 생명 −1</div>
   <button id="startBtn" class="btn">시작하기</button>
   <div class="metaRow">
+    <button class="btn ghost" id="timeBtn">⏱ 타임어택</button>
     <button class="btn ghost openColl">📚 도감</button>
     <button class="btn ghost openGacha">🎁 뽑기</button>
+    <button class="btn ghost" id="achBtn">🏆 업적</button>
   </div>
   <div class="coinBar">🪙 <span class="coinVal">0</span></div>
+  <div id="dailyBar" class="hidden"></div>
   <div class="hint">손가락(마우스)을 드래그해서 슬라이스 ✦ 소리를 켜고 플레이하세요 🎧</div>
 </div>
 
@@ -211,6 +232,12 @@
   <div class="collHint">모은 캐릭터들이 게임에 랜덤으로 등장해요!</div>
   <div id="collGrid"></div>
   <button class="btn" id="collClose">닫기</button>
+</div>
+
+<div id="achScreen" class="overlay hidden">
+  <div class="ovTitle">업적</div>
+  <div id="achList"></div>
+  <button class="btn" id="achClose">닫기</button>
 </div>
 
 <div id="gachaScreen" class="overlay hidden">
@@ -450,10 +477,11 @@ let trail = [];
 let pdown = false, lastP = null;
 let strokeN = 0, strokeBase = 0, strokePts = [], lastSliceT = 0;
 let overPending = false, overDelay = 0;
+let mode = 'classic', timeLeft = 60;   // 게임 모드: classic(생명3) / time(60초)
 let shownScore = -1, shownLives = -1;
 
 function resetGame(){
-  score = 0; lives = 3; elapsed = 0; spawnT = 0.6; maxCombo = 0;
+  score = 0; lives = 3; elapsed = 0; spawnT = 0.6; maxCombo = 0; timeLeft = 60;
   objs = []; pieces = []; parts = []; pops = []; strands = [];
   shake = 0; redFlash = 0; whiteFlash = 0; fever = 0; trail = [];
   strokeN = 0; strokeBase = 0; strokePts = [];
@@ -513,6 +541,8 @@ const CHARS = [
 let gd = null;
 try { gd = JSON.parse(safeGet('sns_gd') || 'null'); } catch(e){ gd = null; }
 if (!gd || !gd.owned) gd = { coins: 0, owned: ['cheese', 'cotton'], eqS: 'cheese', eqW: 'cotton' };
+if (!gd.st) gd.st = { sliced: 0, wak: 0, gold: 0, combo: 0, score: 0, games: 0, fever: 0 };
+if (!gd.claimed) gd.claimed = [];
 function saveGd(){ safeSet('sns_gd', JSON.stringify(gd)); }
 function charById(id, type){
   return CHARS.find(c => c.id === id && c.type === type) || CHARS.find(c => c.type === type);
@@ -599,13 +629,13 @@ function spawnObj(){
   const apex = H * rand(0.55, 0.85);
   const gold = type === 'slangi' && Math.random() < 0.06;   // 레어 황금 슬랑이
   const multi = type === 'slangi' && !gold && Math.random() < 0.08;  // 멀티 슬랑이 (연쇄)
-  let pal, deco = null;
+  let pal, deco = null, chRar = 0;
   if (gold) pal = { light: '#fff8cf', main: '#ffd54d', dark: '#cf9a12' };
   else if (type === 'ice') pal = COLORS.ice;
   else {   // 도감에 모은 캐릭터들이 랜덤으로 등장
     const pool = CHARS.filter(c => c.type === type && gd.owned.includes(c.id));
     const ch = pool.length ? pool[(Math.random() * pool.length) | 0] : charById(null, type);
-    pal = ch.pal; deco = ch.deco || null;
+    pal = ch.pal; deco = ch.deco || null; chRar = ch.rar;
   }
   const seed = rand(0, TAU);
   objs.push({
@@ -614,7 +644,7 @@ function spawnObj(){
     vy: -Math.sqrt(2 * GRAV() * apex),
     r: R, rot: rand(0, TAU), vrot: rand(-2, 2),
     phase: rand(0, TAU), hit: false, dead: false, iceFlash: 0,
-    pal, seed, spr: makeSprite(type, R, pal, seed, multi, deco)
+    pal, seed, rar: chRar, spr: makeSprite(type, R, pal, seed, multi, deco)
   });
 }
 
@@ -644,6 +674,21 @@ function sliceObj(o, ang, a){
   o.dead = true;
   let base = o.gold ? 50 : o.mini ? 5 : o.type === 'wak' ? 20 : 10;
   if (fever > 0) base *= 2;   // 피버타임 2배
+  // 통계 (업적용)
+  gd.st.sliced++;
+  if (o.type === 'wak') gd.st.wak++;
+  if (o.gold) gd.st.gold++;
+  // 에픽·전설 캐릭터 특수 보너스
+  if (o.rar >= 3 && !o.mini && state === ST.PLAY){
+    const bn = o.rar === 4 ? 30 : 15;
+    score += bn;
+    pops.push({ x: o.x, y: o.y - o.r * 1.9, text: (o.rar === 4 ? '🌈 전설 +' : '✨ 에픽 +') + bn,
+      color: RARITY[o.rar].color, life: 1, size: 20, vy: -70 });
+    burst(o.x, o.y, o.rar === 4
+      ? ['#ff9aa2', '#ffd97a', '#9be8a0', '#9fd6ff', '#d3a8ff']
+      : ['#fff3a8', '#d3a8ff', '#ffffff'], 14, o.r);
+    if (o.rar === 4) whiteFlash = Math.max(whiteFlash, 0.3);
+  }
   strokeN++; strokeBase += base; score += base;
   lastSliceT = performance.now();
   strokePts.push({ x: o.x, y: o.y });
@@ -710,6 +755,15 @@ function hitIce(o){
     pops.push({ x: o.x, y: o.y - o.r, text: '피버 세이프!', color: '#cfeeff', life: 0.9, size: 22, vy: -50 });
     return;
   }
+  if (mode === 'time'){   // 타임어택: 생명 대신 -5초
+    o.dead = true; shake = 16; redFlash = 0.7;
+    strokeN = 0; strokeBase = 0; strokePts = [];
+    playClang(); buzz(100);
+    burst(o.x, o.y, COLORS.ice.part, 12, o.r);
+    timeLeft = Math.max(0, timeLeft - 5);
+    pops.push({ x: o.x, y: o.y - o.r, text: '❄ −5초!', color: '#cfeeff', life: 1, size: 26, vy: -55 });
+    return;
+  }
   lives = Math.max(0, lives - 3);
   strokeN = 0; strokeBase = 0; strokePts = [];
   shake = 18; redFlash = 0.9; o.iceFlash = 0.4;
@@ -734,6 +788,7 @@ function finishStroke(){
     buzz([20, 40, 25]);
     if (strokeN >= 4 && state === ST.PLAY && fever <= 0){   // 4콤보 → 피버! (피버 중 연장 없음)
       fever = 4;
+      gd.st.fever++;
       pops.push({ x: W / 2, y: H * 0.35, text: '🔥 FEVER TIME!', color: '#ffd84d', life: 1.4, size: 40, vy: -30 });
       whiteFlash = 0.5;
     }
@@ -743,9 +798,13 @@ function finishStroke(){
   strokeN = 0; strokeBase = 0; strokePts = [];
 }
 function missObj(o){
-  lives = Math.max(0, lives - 1);
   strokeN = 0; strokeBase = 0; strokePts = [];
   playMiss();
+  if (mode === 'time'){   // 타임어택은 생명 없음
+    pops.push({ x: clamp(o.x, 60, W - 60), y: H - 60, text: '놓침!', color: '#ff8a9a', life: 0.7, size: 18, vy: -60 });
+    return;
+  }
+  lives = Math.max(0, lives - 1);
   pops.push({ x: clamp(o.x, 60, W - 60), y: H - 60, text: '놓침! −💗', color: '#ff8a9a', life: 0.9, size: 20, vy: -60 });
   checkDeath();
 }
@@ -877,6 +936,10 @@ function update(dt){
   // 드래그를 유지해도 0.45초간 추가 슬라이스가 없으면 콤보 정산
   if (pdown && strokeN > 0 && performance.now() - lastSliceT > 450) finishStroke();
   fever = Math.max(0, fever - dt);
+  if (mode === 'time' && !overPending){
+    timeLeft -= dt;
+    if (timeLeft <= 0){ timeLeft = 0; overPending = true; overDelay = 0.5; }
+  }
   if (spawnT <= 0 && !overPending){
     spawnWave();
     spawnT = Math.max(0.85, 1.7 - elapsed * 0.012) * rand(0.8, 1.2) * (fever > 0 ? 0.4 : 1);
@@ -1232,6 +1295,11 @@ function render(){
 /* ================= HUD ================= */
 function syncHUD(){
   if (score !== shownScore){ scoreEl.textContent = score; shownScore = score; }
+  if (mode === 'time' && state === ST.PLAY){
+    const tl = Math.ceil(timeLeft);
+    if (tl !== shownLives){ heartsEl.textContent = '⏱ ' + tl; shownLives = tl; }
+    return;
+  }
   if (lives !== shownLives){
     let h = '';
     for (let i = 0; i < 3; i++) h += '<span' + (i < lives ? '' : ' class="lost"') + '>💗</span>';
@@ -1274,8 +1342,16 @@ function startGame(){
 function gameOver(){
   state = ST.OVER;
   playOver(); buzz([60, 50, 120]);
-  const isNew = score > best;
-  if (isNew){ best = score; safeSet('sns_best', best); }
+  const bKey = mode === 'time' ? 'sns_best_t' : 'sns_best';   // 모드별 최고 기록
+  let bsv = +(safeGet(bKey) || 0);
+  const isNew = score > bsv;
+  if (isNew){ bsv = score; safeSet(bKey, bsv); }
+  best = bsv;
+  $('overTitle').textContent = mode === 'time' ? '⏱ 타임 업!' : '게임 오버!';
+  // 통계 (업적용)
+  gd.st.games++;
+  gd.st.combo = Math.max(gd.st.combo, maxCombo);
+  gd.st.score = Math.max(gd.st.score, score);
   const earned = Math.round(score / 10);   // 점수의 10% 코인 적립
   gd.coins += earned; saveGd();
   $('coinEarn').textContent = earned;
@@ -1287,9 +1363,11 @@ function gameOver(){
   $('overScreen').classList.remove('hidden');
 }
 $('startBtn').addEventListener('click', () => {
+  mode = 'classic';
   if (!safeGet('sns_tut_done')) startTutorial();   // 첫 실행 시 튜토리얼
   else startGame();
 });
+$('timeBtn').addEventListener('click', () => { mode = 'time'; startGame(); });
 $('retryBtn').addEventListener('click', startGame);
 $('lobbyBtn').addEventListener('click', () => {
   $('overScreen').classList.add('hidden');
@@ -1456,6 +1534,66 @@ $('muteBtn').addEventListener('click', e => {
   $('muteBtn').textContent = muted ? '🔇' : '🔊';
   if (master) master.gain.value = muted ? 0 : 0.8;
 });
+/* ================= 업적 ================= */
+const ACH = [
+  { id: 'g1',     nm: '첫 발자국',   ds: '게임 1회 플레이',      tg: () => gd.st.games,    m: 1,    rw: 50 },
+  { id: 's100',   nm: '썰기 입문',   ds: '슬라이스 100회',       tg: () => gd.st.sliced,   m: 100,  rw: 100 },
+  { id: 's500',   nm: '썰기 달인',   ds: '슬라이스 500회',       tg: () => gd.st.sliced,   m: 500,  rw: 250 },
+  { id: 'w50',    nm: '왁뿌 파괴자', ds: '왁뿌볼 50개 부수기',   tg: () => gd.st.wak,      m: 50,   rw: 100 },
+  { id: 'gold5',  nm: '황금 사냥꾼', ds: '황금 슬랑이 5개',      tg: () => gd.st.gold,     m: 5,    rw: 150 },
+  { id: 'c5',     nm: '콤보 마스터', ds: '5콤보 달성',           tg: () => gd.st.combo,    m: 5,    rw: 100 },
+  { id: 'c8',     nm: '콤보 신',     ds: '8콤보 달성',           tg: () => gd.st.combo,    m: 8,    rw: 250 },
+  { id: 'sc1000', nm: '천 점 돌파',  ds: '한 판에 1000점',       tg: () => gd.st.score,    m: 1000, rw: 150 },
+  { id: 'f5',     nm: '피버 중독',   ds: '피버타임 5회 발동',    tg: () => gd.st.fever,    m: 5,    rw: 150 },
+  { id: 'col8',   nm: '수집가',      ds: '도감 8종 모으기',      tg: () => gd.owned.length, m: 8,   rw: 200 },
+  { id: 'colA',   nm: '도감 완성',   ds: '도감 16종 모두 모으기', tg: () => gd.owned.length, m: 16,  rw: 500 }
+];
+function buildAch(){
+  const list = $('achList'); list.innerHTML = '';
+  for (const a of ACH){
+    const v = Math.min(a.tg(), a.m);
+    const doneA = a.tg() >= a.m;
+    const claimed = gd.claimed.includes(a.id);
+    const row = document.createElement('div'); row.className = 'ach';
+    const info = document.createElement('div'); info.className = 'ainfo';
+    info.innerHTML = '<div class="anm">' + a.nm + '</div><div class="adesc">' + a.ds +
+      '</div><div class="aprog">' + v + ' / ' + a.m + '</div>';
+    const btn = document.createElement('button'); btn.className = 'achBtn';
+    if (claimed){ btn.textContent = '완료 ✓'; btn.disabled = true; }
+    else if (doneA){
+      btn.textContent = '+' + a.rw + '🪙 받기';
+      btn.onclick = () => {
+        gd.claimed.push(a.id); gd.coins += a.rw;
+        saveGd(); refreshCoins(); buildAch();
+        initAudio(); playCombo(4); buzz(30);
+      };
+    } else { btn.textContent = '+' + a.rw + '🪙'; btn.disabled = true; }
+    row.appendChild(info); row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+$('achBtn').addEventListener('click', () => { buildAch(); $('achScreen').classList.remove('hidden'); });
+$('achClose').addEventListener('click', () => $('achScreen').classList.add('hidden'));
+
+/* ================= 데일리 보너스 ================= */
+function checkDaily(){
+  const today = new Date().toISOString().slice(0, 10);
+  if (gd.daily === today) return;
+  const yest = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  gd.streak = gd.daily === yest ? Math.min((gd.streak || 0) + 1, 7) : 1;
+  gd.daily = today;
+  const rw = 30 + gd.streak * 20;
+  gd.coins += rw; saveGd(); refreshCoins();
+  const bar = $('dailyBar');
+  bar.textContent = '📅 출석 보상 +' + rw + '🪙 (' + gd.streak + '일 연속!)';
+  bar.classList.remove('hidden');
+}
+checkDaily();
+
+/* PWA 서비스워커 */
+if ('serviceWorker' in navigator && location.protocol === 'https:')
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+
 syncHUD();
 lives = 3; shownLives = -1; syncHUD();
 </script>
