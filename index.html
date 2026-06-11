@@ -116,6 +116,20 @@
   }
   .achBtn[disabled] { background:rgba(255,255,255,.15); color:#9a94b8; }
 
+  /* ---------- 마스코트 & 모드 선택 ---------- */
+  #mascot { width:150px; height:150px; cursor:pointer; touch-action:manipulation; }
+  #mascot.boing { animation:boing .7s cubic-bezier(.28,.84,.42,1); }
+  @keyframes boing {
+    0% { transform:scale(1,1); }
+    15% { transform:scale(1.3,0.65); }
+    35% { transform:scale(0.78,1.28); }
+    55% { transform:scale(1.16,0.84); }
+    75% { transform:scale(0.94,1.08); }
+    100% { transform:scale(1,1); }
+  }
+  .modeBtn { display:flex; flex-direction:column; align-items:center; gap:4px; min-width:220px; }
+  .modeBtn .bsc { font-size:13px; font-weight:700; opacity:.7; }
+
   /* ---------- Overlays ---------- */
   .overlay {
     position:fixed; inset:0; z-index:10;
@@ -192,16 +206,9 @@
 <div id="startScreen" class="overlay">
   <div class="title">Squish &amp; Slash</div>
   <div class="subtitle">말랑한 슬랑이를 자르고, 왁뿌볼을 부수자!</div>
-  <div class="legend">
-    <div><span>🟢</span><span class="good">슬랑이</span><span>— 자른다!</span><span class="pt good">+10</span></div>
-    <div><span>🟡</span><span class="bonus">왁뿌볼</span><span>— 부순다!</span><span class="pt bonus">+20</span></div>
-    <div><span>🧊</span><span class="bad">딱딱이 얼음</span><span>— 피한다!</span><span class="pt bad">💔💔💔</span></div>
-    <div><span>✨</span><span class="bonus">황금 슬랑이</span><span>— 레어!</span><span class="pt bonus">+50</span></div>
-  </div>
-  <div class="subtitle">한 번에 여러 개 자르면 <b style="color:#ffd84d">콤보 보너스!</b> · 놓치면 생명 −1</div>
+  <canvas id="mascot" width="320" height="320"></canvas>
   <button id="startBtn" class="btn">시작하기</button>
   <div class="metaRow">
-    <button class="btn ghost" id="timeBtn">⏱ 타임어택</button>
     <button class="btn ghost openColl">📚 도감</button>
     <button class="btn ghost openGacha">🎁 뽑기</button>
     <button class="btn ghost" id="achBtn">🏆 업적</button>
@@ -232,6 +239,13 @@
   <div class="collHint">모은 캐릭터들이 게임에 랜덤으로 등장해요!</div>
   <div id="collGrid"></div>
   <button class="btn" id="collClose">닫기</button>
+</div>
+
+<div id="modeScreen" class="overlay hidden">
+  <div class="ovTitle">모드 선택</div>
+  <button class="btn modeBtn" id="modeClassic">🍮 기본 모드<span class="bsc" id="bestClassic"></span></button>
+  <button class="btn modeBtn" id="modeTime">⏱ 타임어택<span class="bsc" id="bestTime"></span></button>
+  <button class="btn ghost" id="modeClose">닫기</button>
 </div>
 
 <div id="achScreen" class="overlay hidden">
@@ -1364,10 +1378,15 @@ function gameOver(){
 }
 $('startBtn').addEventListener('click', () => {
   mode = 'classic';
-  if (!safeGet('sns_tut_done')) startTutorial();   // 첫 실행 시 튜토리얼
-  else startGame();
+  if (!safeGet('sns_tut_done')){ startTutorial(); return; }   // 첫 실행 시 튜토리얼
+  // 모드 선택 (모드별 베스트 표시)
+  $('bestClassic').textContent = 'BEST ' + (+(safeGet('sns_best') || 0)) + '점';
+  $('bestTime').textContent = 'BEST ' + (+(safeGet('sns_best_t') || 0)) + '점';
+  $('modeScreen').classList.remove('hidden');
 });
-$('timeBtn').addEventListener('click', () => { mode = 'time'; startGame(); });
+$('modeClassic').addEventListener('click', () => { mode = 'classic'; $('modeScreen').classList.add('hidden'); startGame(); });
+$('modeTime').addEventListener('click', () => { mode = 'time'; $('modeScreen').classList.add('hidden'); startGame(); });
+$('modeClose').addEventListener('click', () => $('modeScreen').classList.add('hidden'));
 $('retryBtn').addEventListener('click', startGame);
 $('lobbyBtn').addEventListener('click', () => {
   $('overScreen').classList.add('hidden');
@@ -1534,6 +1553,29 @@ $('muteBtn').addEventListener('click', e => {
   $('muteBtn').textContent = muted ? '🔇' : '🔊';
   if (master) master.gain.value = muted ? 0 : 0.8;
 });
+/* ================= 마스코트 (또잉또잉 푸딩) ================= */
+const mascot = $('mascot');
+renderCharTo(mascot, charById('cheese', 'slangi'), false);
+function playBoing(){
+  if (!AC) return; const t = AC.currentTime;
+  const o = AC.createOscillator(); o.type = 'sine';
+  const f = rand(200, 270);
+  o.frequency.setValueAtTime(f, t);
+  o.frequency.exponentialRampToValueAtTime(f * 2.2, t + 0.07);
+  o.frequency.exponentialRampToValueAtTime(f * 0.8, t + 0.18);
+  o.frequency.exponentialRampToValueAtTime(f * 1.35, t + 0.26);
+  o.frequency.exponentialRampToValueAtTime(f * 0.9, t + 0.34);
+  const g = AC.createGain(); env(g, t, 0.005, 0.32, 0.38);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.45);
+}
+mascot.addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  initAudio(); playBoing(); buzz(20);
+  mascot.classList.remove('boing');
+  void mascot.offsetWidth;   // 애니메이션 재시작
+  mascot.classList.add('boing');
+});
+
 /* ================= 업적 ================= */
 const ACH = [
   { id: 'g1',     nm: '첫 발자국',   ds: '게임 1회 플레이',      tg: () => gd.st.games,    m: 1,    rw: 50 },
