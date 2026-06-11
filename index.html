@@ -172,13 +172,14 @@ function loadSamples(){
     }
   }
 }
+const SAMPLE_VOL = { slangi: 0.9, wak: 0.5, ice: 0.85 };  // 종류별 볼륨 (왁뿌볼은 녹음이 커서 낮춤)
 function playSample(type, pitch){
   const arr = SAMPLES[type];
   if (!AC || !arr.length) return false;
   const s = AC.createBufferSource();
   s.buffer = arr[(Math.random() * arr.length) | 0];
   s.playbackRate.value = pitch * rand(0.96, 1.05);  // 콤보 피치 + 랜덤 변형
-  const g = AC.createGain(); g.gain.value = 0.9;
+  const g = AC.createGain(); g.gain.value = SAMPLE_VOL[type] || 0.9;
   s.connect(g); g.connect(master);
   s.start();
   return true;
@@ -307,7 +308,7 @@ let objs = [], pieces = [], parts = [], pops = [], strands = [];
 let shake = 0, redFlash = 0, whiteFlash = 0;
 let trail = [];
 let pdown = false, lastP = null;
-let strokeN = 0, strokeBase = 0, strokePts = [];
+let strokeN = 0, strokeBase = 0, strokePts = [], lastSliceT = 0;
 let overPending = false, overDelay = 0;
 let shownScore = -1, shownLives = -1;
 
@@ -395,6 +396,7 @@ function sliceObj(o, ang){
   o.dead = true;
   const base = o.type === 'wak' ? 20 : 10;
   strokeN++; strokeBase += base; score += base;
+  lastSliceT = performance.now();
   strokePts.push({ x: o.x, y: o.y });
   const pitch = 1 + 0.09 * (strokeN - 1);   // 콤보 시 음 높이 상승
   if (o.type === 'wak') playThud(pitch); else playSquish(pitch);
@@ -506,10 +508,16 @@ function ptrUp(){
 }
 document.addEventListener('pointerup', ptrUp);
 document.addEventListener('pointercancel', ptrUp);
+// 모바일에서 앱 전환 후 돌아오면 오디오 재개
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && AC && AC.state === 'suspended') AC.resume();
+});
 
 /* ================= 업데이트 ================= */
 function update(dt){
   elapsed += dt; spawnT -= dt;
+  // 드래그를 유지해도 0.45초간 추가 슬라이스가 없으면 콤보 정산
+  if (pdown && strokeN > 0 && performance.now() - lastSliceT > 450) finishStroke();
   if (spawnT <= 0 && !overPending){
     spawnWave();
     spawnT = Math.max(0.85, 1.7 - elapsed * 0.012) * rand(0.8, 1.2);
@@ -616,15 +624,35 @@ function drawShape(type, r, phase, pal, seed){
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
     ctx.beginPath(); ctx.arc(-r * 0.18, -r * 0.55, r * 0.06, 0, TAU); ctx.fill();
   } else {
-    // 파스텔 말랑이 슬랑이
-    const grd = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.15, 0, 0, r * 1.05);
+    // 파스텔 말랑이 슬랑이 — 빵/버터블록처럼 네모지고 푹신한 블롭
+    const bl = 1 + 0.07 * Math.sin(phase);          // 말랑하게 숨쉬는 배불뚝이 변
+    const w2 = r * 1.02, h2 = r * 0.8, k = r * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(-w2 + k, -h2);
+    ctx.quadraticCurveTo(0, -h2 - r * 0.14 * bl, w2 - k, -h2);
+    ctx.quadraticCurveTo(w2, -h2, w2, -h2 + k);
+    ctx.quadraticCurveTo(w2 + r * 0.1 * bl, 0, w2, h2 - k);
+    ctx.quadraticCurveTo(w2, h2, w2 - k, h2);
+    ctx.quadraticCurveTo(0, h2 + r * 0.14 * bl, -w2 + k, h2);
+    ctx.quadraticCurveTo(-w2, h2, -w2, h2 - k);
+    ctx.quadraticCurveTo(-w2 - r * 0.1 * bl, 0, -w2, -h2 + k);
+    ctx.quadraticCurveTo(-w2, -h2, -w2 + k, -h2);
+    ctx.closePath();
+    const grd = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.15, 0, 0, r * 1.15);
     grd.addColorStop(0, pal.light);
     grd.addColorStop(0.55, pal.main);
     grd.addColorStop(1, pal.dark);
     ctx.fillStyle = grd;
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+    ctx.fill();
+    // 푹신한 눌린 자국 (딤플)
+    ctx.fillStyle = 'rgba(90,70,50,0.10)';
+    for (let i = 0; i < 4; i++){
+      const a = sd * 2.3 + i * 1.7;
+      const px = Math.cos(a) * r * 0.5, py = Math.sin(a) * r * 0.38;
+      ctx.beginPath(); ctx.arc(px, py, r * (0.05 + 0.04 * Math.abs(Math.sin(sd + i))), 0, TAU); ctx.fill();
+    }
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.beginPath(); ctx.ellipse(-r * 0.35, -r * 0.42, r * 0.22, r * 0.13, -0.6, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-r * 0.35, -r * 0.42, r * 0.25, r * 0.13, -0.5, 0, TAU); ctx.fill();
   }
   ctx.restore();
 }
