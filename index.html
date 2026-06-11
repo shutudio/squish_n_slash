@@ -224,14 +224,24 @@ function playSquish(p){
   if (!AC) return;
   if (playSample('slangi', p)) return;
   const t = AC.currentTime, v = rand(0.92, 1.08);
-  // 1) 꾸덕한 본체: 무게감 있는 저음 블럽 (아래로 휘어짐)
-  tone(t, 'sine', 210 * p * v, 52, 0.55, 0.006, 0.24);
-  // 2) 젖은 점성 질감: 고Q 로우패스 노이즈 스윕
-  noiseHit(t, 'lowpass', 850 * p * v, 130, 9, 0.42, 0.22);
-  // 3) 쫀득쫀득: 끈적한 기포 팝 4~6개
-  stickyPops(t, p * v, 4 + ((Math.random() * 3) | 0), 0.3);
-  // 4) 끈적하게 붙었다 떨어지는 꼬리 (쪽-)
-  tone(t + 0.1, 'sine', 130 * p, 360 * p, 0.13, 0.012, 0.11);
+  // 1) 철퍽 — 메인 스플랫 (넓은 노이즈가 젖은 느낌으로 쓸려 내려감)
+  noiseHit(t, 'lowpass', 2400 * p * v, 260, 1.8, 0.5, 0.24);
+  // 2) 물기 머금은 철퍽이 불규칙하게 한두 번 더 겹침
+  noiseHit(t + rand(0.03, 0.06), 'bandpass', rand(550, 900) * p, 300, 1.5, 0.3, rand(0.08, 0.14));
+  noiseHit(t + rand(0.08, 0.13), 'bandpass', rand(400, 700) * p, 250, 1.5, 0.22, rand(0.07, 0.12));
+  // 3) 튀는 잔 물방울
+  for (let i = 0; i < 4; i++)
+    noiseHit(t + rand(0.02, 0.16), 'lowpass', rand(1600, 3200), 800, 1, rand(0.05, 0.12), rand(0.015, 0.03));
+  // 4) 꿀럭 — 음정이 출렁이며 가라앉는 액체 글러그
+  const o = AC.createOscillator(); o.type = 'sine';
+  const f0 = 250 * p * v;
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + 0.06);
+  o.frequency.exponentialRampToValueAtTime(f0 * 0.75, t + 0.11);
+  o.frequency.exponentialRampToValueAtTime(f0 * 0.3, t + 0.2);
+  const g = AC.createGain(); env(g, t, 0.006, 0.25, 0.2);
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t + 0.3);
 }
 /* 왁스 껍질 크랙 그레인 — 작은 조각 하나가 "짝" 하고 갈라지는 공명 핑 */
 function crackGrain(t, f, vol, pan){
