@@ -491,7 +491,7 @@ let paused = false;
 let score = 0, lives = 3, elapsed = 0, spawnT = 0, maxCombo = 0;
 let best = +(safeGet('sns_best') || 0);
 let objs = [], pieces = [], parts = [], pops = [], strands = [];
-let shake = 0, redFlash = 0, whiteFlash = 0, fever = 0;
+let shake = 0, redFlash = 0, whiteFlash = 0, fever = 0, feverSec = 0;
 let trail = [];
 let pdown = false, lastP = null;
 let strokeN = 0, strokeBase = 0, strokePts = [], lastSliceT = 0;
@@ -502,7 +502,7 @@ let shownScore = -1, shownLives = -1;
 function resetGame(){
   score = 0; lives = 3; elapsed = 0; spawnT = 0.6; maxCombo = 0; timeLeft = 60;
   objs = []; pieces = []; parts = []; pops = []; strands = [];
-  shake = 0; redFlash = 0; whiteFlash = 0; fever = 0; trail = [];
+  shake = 0; redFlash = 0; whiteFlash = 0; fever = 0; feverSec = 0; trail = [];
   strokeN = 0; strokeBase = 0; strokePts = [];
   overPending = false; shownScore = -1; shownLives = -1;
 }
@@ -954,7 +954,18 @@ function update(dt){
   elapsed += dt; spawnT -= dt;
   // 드래그를 유지해도 0.45초간 추가 슬라이스가 없으면 콤보 정산
   if (pdown && strokeN > 0 && performance.now() - lastSliceT > 450) finishStroke();
+  const prevFever = fever;
   fever = Math.max(0, fever - dt);
+  if (prevFever > 0){   // 피버 카운트다운 3·2·1 + 종료 알림
+    const fs = Math.ceil(fever);
+    if (fever <= 0){
+      feverSec = 0;
+      pops.push({ x: W / 2, y: H * 0.3, text: '피버 종료', color: '#ffffff', life: 0.8, size: 28, vy: -40 });
+    } else if (fs !== feverSec && fs <= 3){
+      feverSec = fs;
+      pops.push({ x: W / 2, y: H * 0.28, text: '🔥 ' + fs, color: '#ffd84d', life: 0.75, size: 44, vy: -45 });
+    }
+  }
   if (mode === 'time' && !overPending){
     timeLeft -= dt;
     if (timeLeft <= 0){ timeLeft = 0; overPending = true; overDelay = 0.5; }
