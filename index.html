@@ -303,7 +303,7 @@ const ST = { MENU: 0, PLAY: 1, OVER: 2 };
 let state = ST.MENU;
 let score = 0, lives = 3, elapsed = 0, spawnT = 0, maxCombo = 0;
 let best = +(safeGet('sns_best') || 0);
-let objs = [], pieces = [], parts = [], pops = [];
+let objs = [], pieces = [], parts = [], pops = [], strands = [];
 let shake = 0, redFlash = 0, whiteFlash = 0;
 let trail = [];
 let pdown = false, lastP = null;
@@ -313,7 +313,7 @@ let shownScore = -1, shownLives = -1;
 
 function resetGame(){
   score = 0; lives = 3; elapsed = 0; spawnT = 0.6; maxCombo = 0;
-  objs = []; pieces = []; parts = []; pops = [];
+  objs = []; pieces = []; parts = []; pops = []; strands = [];
   shake = 0; redFlash = 0; whiteFlash = 0; trail = [];
   strokeN = 0; strokeBase = 0; strokePts = [];
   overPending = false; shownScore = -1; shownLives = -1;
@@ -321,10 +321,31 @@ function resetGame(){
 
 /* ================= 오브젝트 ================= */
 const COLORS = {
-  slangi: { main: '#6ee05a', dark: '#3da32f', light: '#b6f7a8', part: ['#8af075', '#5cd14a', '#caffba'] },
-  wak:    { main: '#ffc933', dark: '#d98f12', light: '#ffe98a', part: ['#ffd84d', '#e8a724', '#fff3b0'] },
-  ice:    { main: '#bfe9ff', dark: '#6fb6e8', light: '#f0fbff', part: ['#dff4ff', '#9fd8ff', '#ffffff'] }
+  ice: { main: '#bfe9ff', dark: '#6fb6e8', light: '#f0fbff', part: ['#dff4ff', '#9fd8ff', '#ffffff'] }
 };
+/* 말랑이 파스텔 팔레트 (슬랑이 — 개체마다 랜덤) */
+const SLANGI_PALS = [
+  { light: '#d9ffd2', main: '#93e87e', dark: '#55b04a' },
+  { light: '#ffe2ec', main: '#ffb3cc', dark: '#e8819f' },
+  { light: '#dbf3ff', main: '#9fd6ff', dark: '#5fa8e0' },
+  { light: '#fff3c9', main: '#ffd97a', dark: '#d9a93f' },
+  { light: '#f0deff', main: '#d3a8ff', dark: '#a070d8' }
+];
+/* 왁뿌볼 파스텔 투톤 (위/아래 색) */
+const WAK_PALS = [
+  { a: '#aee3ff', b: '#ffb9cf' }, { a: '#ffd9a8', b: '#b9f2c4' },
+  { a: '#e7c8ff', b: '#ffe7a3' }, { a: '#c2f0ee', b: '#ffc9d8' }
+];
+function palFor(type){
+  if (type === 'slangi') return SLANGI_PALS[(Math.random() * SLANGI_PALS.length) | 0];
+  if (type === 'wak') return WAK_PALS[(Math.random() * WAK_PALS.length) | 0];
+  return COLORS.ice;
+}
+function partColors(type, pal){
+  if (type === 'slangi') return [pal.light, pal.main, '#ffffff'];
+  if (type === 'wak') return [pal.a, pal.b, '#ffffff'];
+  return COLORS.ice.part;
+}
 
 function spawnWave(){
   const diff = clamp(elapsed / 60, 0, 1);
@@ -348,7 +369,8 @@ function spawnObj(){
     vx: ((W / 2 - x) / W) * rand(80, 300) + rand(-50, 50),
     vy: -Math.sqrt(2 * GRAV() * apex),
     r: R, rot: rand(0, TAU), vrot: rand(-2, 2),
-    phase: rand(0, TAU), hit: false, dead: false, iceFlash: 0
+    phase: rand(0, TAU), hit: false, dead: false, iceFlash: 0,
+    pal: palFor(type), seed: rand(0, TAU)
   });
 }
 
@@ -377,20 +399,32 @@ function sliceObj(o, ang){
   const pitch = 1 + 0.09 * (strokeN - 1);   // 콤보 시 음 높이 상승
   if (o.type === 'wak') playThud(pitch); else playSquish(pitch);
   buzz(15);
-  // 두 조각 분리 (각각 물리 적용)
+  // 두 조각 분리 — 점도 있는 슬라임처럼 묵직하게 벌어지고, 단면은 울퉁불퉁
   const nx = Math.sin(ang), ny = -Math.cos(ang);
+  const wob = []; for (let i = 0; i <= 6; i++) wob.push(rand(-1, 1));
+  const pair = [];
   for (const side of [-1, 1]){
-    const imp = rand(130, 230);
-    pieces.push({
-      type: o.type, x: o.x + nx * side * 4, y: o.y + ny * side * 4,
-      vx: o.vx * 0.6 + nx * side * imp + rand(-30, 30),
-      vy: Math.min(o.vy, 0) * 0.4 - rand(40, 130),
-      r: o.r, rot: ang, vrot: side * rand(2.5, 6),
-      side, life: 1.3, phase: o.phase
-    });
+    const imp = rand(55, 110);   // 과일처럼 튕기지 않게 느린 분리
+    const pc = {
+      type: o.type, x: o.x + nx * side * 3, y: o.y + ny * side * 3,
+      vx: o.vx * 0.5 + nx * side * imp + rand(-15, 15),
+      vy: Math.min(o.vy, 0) * 0.35 - rand(10, 50),
+      r: o.r, rot: ang, vrot: side * rand(0.6, 1.8),
+      side, life: 1.4, age: 0, phase: o.phase, pal: o.pal, seed: o.seed, wob
+    };
+    pieces.push(pc); pair.push(pc);
   }
-  burst(o.x, o.y, COLORS[o.type].part, o.type === 'wak' ? 16 : 13, o.r);
-  pops.push({ x: o.x, y: o.y - o.r, text: '+' + base, color: COLORS[o.type].light, life: 0.8, size: 22, vy: -90 });
+  // 갈라질 때 잠깐 끈적하게 이어지는 가닥 (슬랑이)
+  if (o.type === 'slangi') strands.push({ a: pair[0], b: pair[1], t: 0.26, w: o.r * 0.5, color: o.pal.main });
+  burst(o.x, o.y, partColors(o.type, o.pal), o.type === 'wak' ? 14 : 10, o.r);
+  // 끈적하게 흘러내리는 방울
+  const nd = o.type === 'slangi' ? 4 : 2;
+  for (let i = 0; i < nd; i++)
+    parts.push({ drip: true, x: o.x + rand(-o.r, o.r) * 0.5, y: o.y + rand(0, o.r * 0.3),
+      vx: rand(-18, 18), vy: rand(10, 50), r: rand(3.5, 6.5),
+      color: o.type === 'wak' ? (Math.random() < 0.5 ? o.pal.a : o.pal.b) : o.pal.main,
+      life: rand(0.7, 1.1), maxLife: 1.1 });
+  pops.push({ x: o.x, y: o.y - o.r, text: '+' + base, color: '#ffffff', life: 0.8, size: 22, vy: -90 });
   if (strokeN >= 3) whiteFlash = Math.max(whiteFlash, 0.18);
 }
 function hitIce(o){
@@ -493,8 +527,9 @@ function update(dt){
   }
   objs = objs.filter(o => !o.dead);
   for (const p of pieces){
-    p.vy += g * dt; p.x += p.vx * dt; p.y += p.vy * dt;
-    p.rot += p.vrot * dt; p.life -= dt;
+    p.vy += g * 0.8 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= Math.exp(-1.6 * dt); p.vrot *= Math.exp(-1.2 * dt);  // 점성 감쇠
+    p.rot += p.vrot * dt; p.life -= dt; p.age += dt;
   }
   pieces = pieces.filter(p => p.life > 0 && p.y < H + 200);
   if (overPending){
@@ -507,9 +542,13 @@ function updateFx(dt){
   redFlash = Math.max(0, redFlash - 2.2 * dt);
   whiteFlash = Math.max(0, whiteFlash - 2.5 * dt);
   for (const p of parts){
-    p.vy += GRAV() * 0.7 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+    p.vy += GRAV() * (p.drip ? 0.3 : 0.7) * dt;   // 방울은 점성 있게 천천히
+    if (p.drip) p.vx *= Math.exp(-3 * dt);
+    p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
   }
   parts = parts.filter(p => p.life > 0);
+  for (const s of strands) s.t -= dt;
+  strands = strands.filter(s => s.t > 0);
   for (const p of pops){ p.y += p.vy * dt; p.life -= dt; }
   pops = pops.filter(p => p.life > 0);
   const now = performance.now();
@@ -533,8 +572,8 @@ function drawBG(){
   ctx.fillStyle = 'rgba(120, 90, 220, 0.07)';
   ctx.beginPath(); ctx.ellipse(W / 2, H + 40, W * 0.7, 120, 0, 0, TAU); ctx.fill();
 }
-function drawShape(type, r, phase){
-  const c = COLORS[type];
+function drawShape(type, r, phase, pal, seed){
+  const c = COLORS.ice;
   if (type === 'ice'){
     const s = r * 0.92;
     const grd = ctx.createLinearGradient(-s, -s, s, s);
@@ -552,24 +591,41 @@ function drawShape(type, r, phase){
     return;
   }
   // 말랑 블롭 (슬랑이 / 왁뿌볼)
-  const wob = type === 'slangi' ? 0.05 * Math.sin(phase) : 0;
+  const wob = 0.06 * Math.sin(phase);
+  const sd = seed || 0;
+  const wave = x => r * 0.08 * Math.sin(sd + x / r * 2.6) + r * 0.05 * Math.sin(sd * 1.7 + x / r * 5);
   ctx.save();
   ctx.scale(1 + wob, 1 - wob);
-  const grd = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.15, 0, 0, r * 1.05);
-  grd.addColorStop(0, c.light);
-  grd.addColorStop(0.55, c.main);
-  grd.addColorStop(1, c.dark);
-  ctx.fillStyle = grd;
-  ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
   if (type === 'wak'){
-    // 왁스 결 무늬
-    ctx.strokeStyle = 'rgba(180,110,20,0.45)'; ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.arc(0, 0, r * 0.62, 0.4, 2.2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, 0, r * 0.82, 3.3, 4.9); ctx.stroke();
+    // 파스텔 투톤 왁뿌볼 (매끈한 왁스 코팅)
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU);
+    ctx.fillStyle = pal.b; ctx.fill();
+    ctx.save();
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.995, 0, TAU); ctx.clip();
+    ctx.fillStyle = pal.a;                       // 위쪽 톤 (물결 경계)
+    ctx.beginPath(); ctx.moveTo(-r, -r * 1.1);
+    ctx.lineTo(-r, wave(-r));
+    for (let i = 1; i <= 6; i++){ const x = -r + (2 * r) * i / 6; ctx.lineTo(x, wave(x)); }
+    ctx.lineTo(r, -r * 1.1); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(120,90,160,0.10)';     // 아래쪽 은은한 음영
+    ctx.beginPath(); ctx.arc(0, r * 0.55, r * 0.85, 0, TAU); ctx.fill();
+    ctx.restore();
+    // 왁스 광택
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.beginPath(); ctx.ellipse(-r * 0.32, -r * 0.42, r * 0.3, r * 0.16, -0.6, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.beginPath(); ctx.arc(-r * 0.18, -r * 0.55, r * 0.06, 0, TAU); ctx.fill();
+  } else {
+    // 파스텔 말랑이 슬랑이
+    const grd = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.15, 0, 0, r * 1.05);
+    grd.addColorStop(0, pal.light);
+    grd.addColorStop(0.55, pal.main);
+    grd.addColorStop(1, pal.dark);
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(-r * 0.35, -r * 0.42, r * 0.22, r * 0.13, -0.6, 0, TAU); ctx.fill();
   }
-  // 하이라이트
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.beginPath(); ctx.ellipse(-r * 0.35, -r * 0.42, r * 0.22, r * 0.13, -0.6, 0, TAU); ctx.fill();
   ctx.restore();
 }
 function drawFace(r, type){
@@ -606,11 +662,12 @@ function drawObj(o){
       ctx.fillStyle = 'rgba(255,255,255,' + (o.iceFlash * 1.8) + ')';
       ctx.beginPath(); ctx.arc(0, 0, o.r * 1.1, 0, TAU); ctx.fill();
     }
+  } else if (o.type === 'wak'){
+    ctx.rotate(o.rot * 0.6);
+    drawShape('wak', o.r, o.phase, o.pal, o.seed);
   } else {
-    if (o.type === 'wak') ctx.rotate(o.rot);
-    drawShape(o.type, o.r, o.phase);
-    if (o.type === 'wak') ctx.rotate(-o.rot);
-    drawFace(o.r, o.type);
+    drawShape('slangi', o.r, o.phase, o.pal, o.seed);
+    drawFace(o.r, 'slangi');
   }
   ctx.restore();
 }
@@ -618,17 +675,40 @@ function drawPiece(p){
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(p.rot);
+  // 점도: 시간이 지나며 옆으로 퍼지고 처지는 슬라임 느낌
+  const melt = clamp(p.age * 0.9, 0, 0.4);
+  ctx.scale(1 + melt * 0.55, 1 - melt * 0.5);
+  ctx.translate(0, p.side * melt * p.r * 0.25);
   ctx.globalAlpha = p.life < 0.45 ? p.life / 0.45 : 1;
-  // 절단선 기준 절반만 클리핑
+  // 울퉁불퉁한 젤리 단면으로 클리핑 (두 조각이 서로 맞물리는 단면)
+  const R = p.r * 1.8;
+  const edgeY = i => p.wob[i] * p.r * 0.14;
   ctx.beginPath();
-  ctx.rect(-p.r * 1.7, p.side < 0 ? -p.r * 1.7 : 1, p.r * 3.4, p.r * 1.7);
-  ctx.clip();
-  drawShape(p.type, p.r, p.phase);
-  // 단면
-  ctx.strokeStyle = p.type === 'wak' ? 'rgba(255,240,180,0.9)' : 'rgba(220,255,205,0.9)';
-  ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(-p.r, p.side * 2); ctx.lineTo(p.r, p.side * 2); ctx.stroke();
+  ctx.moveTo(-R, edgeY(0));
+  for (let i = 1; i <= 6; i++) ctx.lineTo(-R + (2 * R) * i / 6, edgeY(i));
+  ctx.lineTo(R, p.side * R); ctx.lineTo(-R, p.side * R);
+  ctx.closePath(); ctx.clip();
+  drawShape(p.type, p.r, p.phase, p.pal, p.seed);
+  // 끈적한 속살 단면
+  ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+  ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-p.r * 0.9, edgeY(1));
+  for (let i = 2; i <= 5; i++) ctx.lineTo(-p.r * 0.9 + (1.8 * p.r) * (i - 1) / 4, edgeY(i));
+  ctx.stroke();
   ctx.restore();
+}
+function drawStrands(){
+  // 갈라진 두 조각 사이에 잠깐 늘어나는 끈적한 가닥
+  ctx.lineCap = 'round';
+  for (const s of strands){
+    const k = s.t / 0.26;
+    ctx.globalAlpha = k * 0.85;
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = Math.max(1, s.w * k * k);
+    ctx.beginPath(); ctx.moveTo(s.a.x, s.a.y); ctx.lineTo(s.b.x, s.b.y); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 function drawTrail(){
   if (trail.length < 2) return;
@@ -655,7 +735,12 @@ function drawParticles(){
   for (const p of parts){
     ctx.globalAlpha = clamp(p.life / p.maxLife, 0, 1);
     ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
+    ctx.beginPath();
+    if (p.drip){
+      const st = 1 + clamp(Math.abs(p.vy) / 260, 0, 1.6);  // 떨어질수록 길게 늘어짐
+      ctx.ellipse(p.x, p.y, p.r * 0.7, p.r * st, 0, 0, TAU);
+    } else ctx.arc(p.x, p.y, p.r, 0, TAU);
+    ctx.fill();
   }
   ctx.globalAlpha = 1;
 }
@@ -676,6 +761,7 @@ function render(){
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawBG();
   if (shake > 0) ctx.translate(rand(-shake, shake), rand(-shake, shake));
+  drawStrands();
   for (const p of pieces) drawPiece(p);
   for (const o of objs) drawObj(o);
   drawParticles();
