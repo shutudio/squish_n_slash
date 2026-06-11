@@ -27,6 +27,7 @@
     text-shadow:0 2px 8px rgba(0,0,0,.5);
     font-variant-numeric:tabular-nums;
   }
+  #fpsEl { font-size:11px; opacity:.45; font-weight:600; }
   #rightHud { display:flex; align-items:center; gap:12px; }
   #heartsEl { font-size:clamp(22px, 5vw, 32px); letter-spacing:2px; text-shadow:0 2px 6px rgba(0,0,0,.5); }
   #heartsEl .lost { opacity:.22; filter:grayscale(1); }
@@ -85,7 +86,10 @@
 <canvas id="game"></canvas>
 
 <div id="hud">
-  <div id="scoreEl">0</div>
+  <div>
+    <div id="scoreEl">0</div>
+    <div id="fpsEl"></div>
+  </div>
   <div id="rightHud">
     <div id="heartsEl"></div>
     <button id="muteBtn" title="소리 켜기/끄기">🔊</button>
@@ -137,7 +141,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const GRAV = () => H * 1.35;
 
 const $ = id => document.getElementById(id);
-const scoreEl = $('scoreEl'), heartsEl = $('heartsEl');
+const scoreEl = $('scoreEl'), heartsEl = $('heartsEl'), fpsEl = $('fpsEl');
 
 function safeGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
 function safeSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
@@ -401,12 +405,15 @@ function sliceSegment(a, b){
   const ang = Math.atan2(b.y - a.y, b.x - a.x);
   for (const o of objs){
     if (o.hit || o.dead) continue;
-    if (segDist(a, b, o) < o.r * 0.95) sliceObj(o, ang);
+    if (segDist(a, b, o) < o.r * 0.95) sliceObj(o, ang, a);
   }
 }
-function sliceObj(o, ang){
+function sliceObj(o, ang, a){
   o.hit = true;
   if (o.type === 'ice'){ hitIce(o); return; }
+  // 실제 그은 선이 오브젝트를 지나간 위치로 절단선 결정 (매번 다른 크기로 잘림)
+  let cut = (a.x - o.x) * -Math.sin(ang) + (a.y - o.y) * Math.cos(ang);
+  cut = clamp(cut, -o.r * 0.65, o.r * 0.65);
   o.dead = true;
   const base = o.gold ? 50 : o.type === 'wak' ? 20 : 10;
   strokeN++; strokeBase += base; score += base;
@@ -426,7 +433,7 @@ function sliceObj(o, ang){
       vx: o.vx * 0.5 + nx * side * imp + rand(-15, 15),
       vy: Math.min(o.vy, 0) * 0.35 - rand(10, 50),
       r: o.r, rot: ang, vrot: side * rand(0.6, 1.8),
-      side, life: 1.4, age: 0, phase: o.phase, pal: o.pal, seed: o.seed, spr: o.spr, wob
+      side, life: 1.4, age: 0, phase: o.phase, pal: o.pal, seed: o.seed, spr: o.spr, wob, cut
     };
     pieces.push(pc); pair.push(pc);
   }
@@ -748,7 +755,7 @@ function drawPiece(p){
   ctx.globalAlpha = p.life < 0.45 ? p.life / 0.45 : 1;
   // 울퉁불퉁한 젤리 단면으로 클리핑 (두 조각이 서로 맞물리는 단면)
   const R = p.r * 1.8;
-  const edgeY = i => p.wob[i] * p.r * 0.14;
+  const edgeY = i => p.cut + p.wob[i] * p.r * 0.14;
   ctx.beginPath();
   ctx.moveTo(-R, edgeY(0));
   for (let i = 1; i <= 6; i++) ctx.lineTo(-R + (2 * R) * i / 6, edgeY(i));
@@ -860,10 +867,14 @@ function syncHUD(){
 
 /* ================= 루프 ================= */
 let lastT = performance.now();
+let fpsAcc = 0, fpsN = 0;
 function loop(t){
   requestAnimationFrame(loop);
-  const dt = clamp((t - lastT) / 1000, 0, 0.045);
+  const raw = (t - lastT) / 1000;
+  const dt = clamp(raw, 0, 0.045);
   lastT = t;
+  fpsAcc += raw; fpsN++;
+  if (fpsAcc >= 0.5){ fpsEl.textContent = Math.round(fpsN / fpsAcc) + ' fps'; fpsAcc = 0; fpsN = 0; }
   if (state === ST.PLAY) update(dt);
   updateFx(dt);
   render();
