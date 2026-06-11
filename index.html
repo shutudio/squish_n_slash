@@ -699,6 +699,13 @@ function hitIce(o){
     tutDelay = Math.max(tutDelay, 1.1);
     return;
   }
+  if (fever > 0){   // 피버 중엔 얼음도 세이프 (콤보만 끊김)
+    o.dead = true; shake = 10; playClang(); buzz(40);
+    strokeN = 0; strokeBase = 0; strokePts = [];
+    burst(o.x, o.y, COLORS.ice.part, 10, o.r);
+    pops.push({ x: o.x, y: o.y - o.r, text: '피버 세이프!', color: '#cfeeff', life: 0.9, size: 22, vy: -50 });
+    return;
+  }
   lives = Math.max(0, lives - 3);
   strokeN = 0; strokeBase = 0; strokePts = [];
   shake = 18; redFlash = 0.9; o.iceFlash = 0.4;
@@ -723,7 +730,7 @@ function finishStroke(){
     buzz([20, 40, 25]);
     if (strokeN >= 4 && state === ST.PLAY){   // 4콤보 이상이면 피버타임!
       const fresh = fever <= 0;
-      fever = Math.max(fever, 6);
+      fever = Math.max(fever, 4);   // 짧고 굵게, 대신 노 패널티
       if (fresh){
         pops.push({ x: W / 2, y: H * 0.35, text: '🔥 FEVER TIME!', color: '#ffd84d', life: 1.4, size: 40, vy: -30 });
         whiteFlash = 0.5;
@@ -881,7 +888,7 @@ function update(dt){
     if ((o.x < o.r && o.vx < 0) || (o.x > W - o.r && o.vx > 0)) o.vx *= -1;
     if (!o.dead && o.vy > 0 && o.y > H + o.r + 30){
       o.dead = true;
-      if (o.type !== 'ice' && !o.hit && !o.mini && !overPending) missObj(o);  // 새끼는 놓쳐도 무벌점
+      if (o.type !== 'ice' && !o.hit && !o.mini && !overPending && fever <= 0) missObj(o);  // 새끼·피버 중엔 무벌점
     }
   }
   objs = objs.filter(o => !o.dead);
