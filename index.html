@@ -194,12 +194,12 @@ function env(g, t, atk, peak, dec){
   g.gain.linearRampToValueAtTime(peak, t + atk);
   g.gain.exponentialRampToValueAtTime(0.0001, t + atk + dec);
 }
-function noiseHit(t, type, f0, f1, q, peak, dur){
+function noiseHit(t, type, f0, f1, q, peak, dur, atk){
   const s = AC.createBufferSource(); s.buffer = noiseBuffer;
   const f = AC.createBiquadFilter(); f.type = type; f.Q.value = q;
   f.frequency.setValueAtTime(f0, t);
   f.frequency.exponentialRampToValueAtTime(Math.max(f1, 30), t + dur);
-  const g = AC.createGain(); env(g, t, 0.004, peak, dur);
+  const g = AC.createGain(); env(g, t, atk || 0.004, peak, dur);
   s.connect(f); f.connect(g); g.connect(master);
   s.start(t); s.stop(t + dur + 0.1);
 }
@@ -228,24 +228,25 @@ function playSquish(p){
   if (!AC) return;
   if (playSample('slangi', p)) return;
   const t = AC.currentTime, v = rand(0.92, 1.08);
-  // (프롬프트: soft malleable slime, wet squelchy sticky gooey, soft suction, elastic squish, rhythmic slap)
-  // 1) 젖은 철퍽 본체 — 부드럽고 깊게
-  noiseHit(t, 'lowpass', 1900 * p * v, 220, 1.6, 0.45, 0.22);
-  // 2) 리드미컬한 젖은 슬랩 두 번
-  noiseHit(t + rand(0.05, 0.08), 'lowpass', rand(700, 1100) * p, 250, 1.4, 0.26, 0.07);
-  noiseHit(t + rand(0.12, 0.16), 'lowpass', rand(500, 850) * p, 220, 1.4, 0.2, 0.07);
-  // 3) 부드러운 석션 — 쪼옥 빨려 올라갔다 가라앉는 톤
+  // 찰방~ 쫀득~ : 퍽(저음 타격) 제거, 부드럽게 출렁이는 물기 + 길게 늘어나는 점성
+  // 1) 찰방 — 어택을 느리게, 물이 차오르듯 부드러운 스플래시
+  noiseHit(t, 'lowpass', 2800 * p * v, 480, 1.4, 0.34, 0.3, 0.04);
+  // 2) 잔물결 — 두 번째 찰방 (작고 늦게)
+  noiseHit(t + rand(0.1, 0.15), 'lowpass', rand(1500, 2200) * p, 400, 1.4, 0.2, 0.22, 0.03);
+  // 3) 톡톡 튀는 물방울 반짝임
+  for (let i = 0; i < 5; i++)
+    noiseHit(t + rand(0.03, 0.24), 'lowpass', rand(1900, 3600), 900, 1, rand(0.04, 0.09), rand(0.02, 0.035));
+  // 4) 쫀득 — 음정이 쭈우욱 늘어났다가 말랑하게 놓이는 점성 스트레치
   const o = AC.createOscillator(); o.type = 'sine';
-  const f0 = 110 * p * v;
-  o.frequency.setValueAtTime(f0, t + 0.02);
-  o.frequency.exponentialRampToValueAtTime(f0 * 2.6, t + 0.1);
-  o.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + 0.22);
-  const g = AC.createGain(); env(g, t + 0.02, 0.025, 0.22, 0.22);
-  o.connect(g); g.connect(master); o.start(t + 0.02); o.stop(t + 0.32);
-  // 4) 깊고 묵직한 점액 바닥음
-  tone(t, 'sine', 95 * p * v, 45, 0.3, 0.01, 0.2);
-  // 5) 탄력 있는 미세 스트레치 결 (아주 작게)
-  noiseHit(t + rand(0.02, 0.1), 'bandpass', rand(1200, 2000), 600, 2, 0.07, 0.05);
+  const f0 = 150 * p * v;
+  o.frequency.setValueAtTime(f0, t + 0.03);
+  o.frequency.exponentialRampToValueAtTime(f0 * 2.4, t + 0.16);
+  o.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + 0.34);
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t + 0.03);
+  g.gain.linearRampToValueAtTime(0.16, t + 0.12);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.36);
+  o.connect(g); g.connect(master); o.start(t + 0.03); o.stop(t + 0.42);
 }
 /* 왁뿌볼 크랙 직후 따라붙는 끈적한 점액 꼬리 (gooey suction) */
 function thudTail(p){
