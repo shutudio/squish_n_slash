@@ -31,10 +31,36 @@
   #rightHud { display:flex; align-items:center; gap:12px; }
   #heartsEl { font-size:clamp(22px, 5vw, 32px); letter-spacing:2px; text-shadow:0 2px 6px rgba(0,0,0,.5); }
   #heartsEl .lost { opacity:.22; filter:grayscale(1); }
-  #muteBtn {
+  #muteBtn, #setBtn {
     pointer-events:auto; background:rgba(255,255,255,.12); border:none;
     border-radius:50%; width:42px; height:42px; font-size:20px; cursor:pointer;
     color:#fff; backdrop-filter:blur(4px);
+  }
+
+  /* ---------- 튜토리얼 ---------- */
+  #tutBar {
+    position:fixed; top:calc(env(safe-area-inset-top) + 70px); left:50%;
+    transform:translateX(-50%); z-index:6; max-width:92vw;
+    background:rgba(20,14,45,.85); color:#fff; padding:10px 16px; border-radius:16px;
+    display:flex; gap:12px; align-items:center; font-size:15px; font-weight:600;
+    backdrop-filter:blur(4px); box-shadow:0 4px 16px rgba(0,0,0,.35);
+  }
+  #tutBar.hidden { display:none; }
+  #tutSkip {
+    background:rgba(255,255,255,.15); color:#fff; border:none; border-radius:999px;
+    padding:6px 14px; font-size:13px; cursor:pointer; flex-shrink:0;
+  }
+  #tutHint {
+    position:fixed; left:50%; top:52%; z-index:6; font-size:46px;
+    pointer-events:none; display:none;
+    filter:drop-shadow(0 3px 8px rgba(0,0,0,.5));
+    animation:swipe 1.4s ease-in-out infinite;
+  }
+  @keyframes swipe {
+    0% { transform:translate(-90px, 70px) rotate(-18deg); opacity:0; }
+    15% { opacity:1; }
+    70% { transform:translate(70px, -70px) rotate(8deg); opacity:1; }
+    100% { transform:translate(95px, -95px) rotate(8deg); opacity:0; }
   }
 
   /* ---------- Overlays ---------- */
@@ -78,7 +104,7 @@
   .stats .row { font-size:clamp(15px, 4vw, 19px); opacity:.9; }
   .newBest { color:#8df57a; font-weight:800; animation:pulse 1s infinite; }
   @keyframes pulse { 50% { transform:scale(1.08); } }
-  #overTitle { font-size:clamp(30px, 8vw, 48px); font-weight:900; }
+  #overTitle, .ovTitle { font-size:clamp(30px, 8vw, 48px); font-weight:900; }
   .hint { font-size:13px; opacity:.55; margin-top:6px; }
 </style>
 </head>
@@ -93,7 +119,21 @@
   <div id="rightHud">
     <div id="heartsEl"></div>
     <button id="muteBtn" title="소리 켜기/끄기">🔊</button>
+    <button id="setBtn" title="설정">⚙️</button>
   </div>
+</div>
+
+<div id="tutBar" class="hidden">
+  <span id="tutText"></span>
+  <button id="tutSkip">건너뛰기</button>
+</div>
+<div id="tutHint">👆</div>
+
+<div id="setScreen" class="overlay hidden">
+  <div class="ovTitle">설정</div>
+  <button class="btn ghost" id="setSound">🔊 소리: 켜짐</button>
+  <button class="btn ghost" id="setTut">📖 튜토리얼 다시 보기</button>
+  <button class="btn" id="setClose">닫기</button>
 </div>
 
 <div id="startScreen" class="overlay">
@@ -329,8 +369,9 @@ function playOver(){
 function buzz(p){ if (navigator.vibrate) { try { navigator.vibrate(p); } catch(e){} } }
 
 /* ================= 게임 상태 ================= */
-const ST = { MENU: 0, PLAY: 1, OVER: 2 };
+const ST = { MENU: 0, PLAY: 1, OVER: 2, TUT: 3 };
 let state = ST.MENU;
+let paused = false;
 let score = 0, lives = 3, elapsed = 0, spawnT = 0, maxCombo = 0;
 let best = +(safeGet('sns_best') || 0);
 let objs = [], pieces = [], parts = [], pops = [], strands = [];
@@ -439,6 +480,10 @@ function sliceObj(o, ang, a){
   strokeN++; strokeBase += base; score += base;
   lastSliceT = performance.now();
   strokePts.push({ x: o.x, y: o.y });
+  if (state === ST.TUT){   // 튜토리얼 진행 체크
+    tutCount++;
+    if (tutCount >= TUT[tutStep].need) tutDelay = Math.max(tutDelay, 0.9);
+  }
   const pitch = 1 + 0.09 * (strokeN - 1);   // 콤보 시 음 높이 상승
   if (o.type === 'wak') playThud(pitch); else playSquish(pitch);
   buzz(15);
@@ -484,6 +529,13 @@ function sliceObj(o, ang, a){
   if (strokeN >= 3) whiteFlash = Math.max(whiteFlash, 0.18);
 }
 function hitIce(o){
+  if (state === ST.TUT){   // 튜토리얼에서는 벌점 없이 경고만
+    o.dead = true; shake = 12; playClang(); buzz(60);
+    burst(o.x, o.y, COLORS.ice.part, 10, o.r);
+    pops.push({ x: o.x, y: o.y - o.r, text: '앗! 실전이면 게임오버!', color: '#ff8a9a', life: 1.3, size: 22, vy: -50 });
+    tutDelay = Math.max(tutDelay, 1.1);
+    return;
+  }
   lives = Math.max(0, lives - 3);
   strokeN = 0; strokeBase = 0; strokePts = [];
   shake = 18; redFlash = 0.9; o.iceFlash = 0.4;
@@ -506,7 +558,7 @@ function finishStroke(){
       text: strokeN + ' 콤보! ×' + mult + ' +' + bonus, color: '#ffd84d', life: 1.2, size: 32, vy: -50 });
     playCombo(strokeN); whiteFlash = Math.max(whiteFlash, 0.3);
     buzz([20, 40, 25]);
-    if (strokeN >= 4){   // 4콤보 이상이면 피버타임!
+    if (strokeN >= 4 && state === ST.PLAY){   // 4콤보 이상이면 피버타임!
       const fresh = fever <= 0;
       fever = Math.max(fever, 6);
       if (fresh){
@@ -532,6 +584,79 @@ function checkDeath(){
   }
 }
 
+/* ================= 튜토리얼 ================= */
+let tutStep = 0, tutCount = 0, tutDelay = 0;
+const TUT = [
+  { text: '🟢 슬랑이를 드래그로 잘라보세요!', type: 'slangi', n: 1, need: 1 },
+  { text: '🟡 왁뿌볼은 부수면 +20점!', type: 'wak', n: 1, need: 1 },
+  { text: '✨ 한 번에 여러 개 자르면 콤보!', type: 'slangi', n: 3, need: 3 },
+  { text: '🧊 얼음은 자르면 안 돼요! 그냥 보내세요', type: 'ice', n: 1, need: 0 },
+  { text: '준비 완료! 진짜 게임 시작 🎉', type: null, n: 0, need: -1 }
+];
+function startTutorial(){
+  initAudio(); resetGame();
+  $('startScreen').classList.add('hidden');
+  $('overScreen').classList.add('hidden');
+  $('setScreen').classList.add('hidden');
+  paused = false;
+  state = ST.TUT; tutStep = -1; tutDelay = 0;
+  $('tutBar').classList.remove('hidden');
+  tutAdvance();
+  syncHUD();
+}
+function tutAdvance(){
+  tutStep++; tutCount = 0;
+  if (tutStep >= TUT.length){ endTutorial(); return; }
+  const s = TUT[tutStep];
+  $('tutText').textContent = s.text;
+  $('tutHint').style.display = tutStep === 0 ? 'block' : 'none';
+  if (s.need === -1) tutDelay = 1.5;
+  else tutSpawn();
+}
+function tutSpawn(){
+  const s = TUT[tutStep];
+  for (let i = 0; i < s.n; i++){
+    const R = clamp(Math.min(W, H) / 700, 0.75, 1.3) * 42;
+    const x = W * (s.n === 1 ? 0.5 : 0.28 + 0.44 * i / (s.n - 1));
+    const pal = palFor(s.type), seed = rand(0, TAU);
+    objs.push({ type: s.type, x, y: H + R + 10, gold: false, multi: false,
+      vx: 0, vy: -Math.sqrt(2 * GRAV() * H * 0.62),
+      r: R, rot: rand(0, TAU), vrot: rand(-1.5, 1.5), phase: rand(0, TAU),
+      hit: false, dead: false, iceFlash: 0, pal, seed, spr: makeSprite(s.type, R, pal, seed) });
+  }
+}
+function endTutorial(){
+  safeSet('sns_tut_done', '1');
+  $('tutBar').classList.add('hidden');
+  $('tutHint').style.display = 'none';
+  startGame();
+}
+function updateTut(dt){
+  const g = GRAV();
+  for (const o of objs){
+    o.vy += g * dt; o.x += o.vx * dt; o.y += o.vy * dt;
+    o.rot += o.vrot * dt; o.phase += dt * 7;
+    if (o.iceFlash > 0) o.iceFlash -= dt;
+    if (!o.dead && o.vy > 0 && o.y > H + o.r + 30){
+      o.dead = true;
+      const s = TUT[tutStep];
+      if (s.need === 0 && o.type === 'ice' && !o.hit){ tutAdvance(); return; }  // 얼음 잘 보냄!
+      if (!o.hit) tutDelay = Math.max(tutDelay, 0.5);   // 놓침 → 다시 던져줌
+    }
+  }
+  objs = objs.filter(o => !o.dead);
+  if (tutDelay > 0){
+    tutDelay -= dt;
+    if (tutDelay <= 0){
+      const s = TUT[tutStep];
+      if (s.need === -1) endTutorial();
+      else if (s.need > 0 && tutCount >= s.need) tutAdvance();
+      else if (objs.length === 0) tutSpawn();
+      else tutDelay = 0.3;
+    }
+  }
+}
+
 /* ================= 파티클 / 팝업 ================= */
 function burst(x, y, colors, n, r){
   for (let i = 0; i < n; i++){
@@ -549,13 +674,13 @@ function burst(x, y, colors, n, r){
 function getPos(e){ return { x: e.clientX, y: e.clientY }; }
 document.addEventListener('pointerdown', e => {
   initAudio();
-  if (state !== ST.PLAY) return;
+  if ((state !== ST.PLAY && state !== ST.TUT) || paused) return;
   pdown = true; lastP = getPos(e);
   trail.length = 0; trail.push({ x: lastP.x, y: lastP.y, t: performance.now() });
   strokeN = 0; strokeBase = 0; strokePts = [];
 });
 document.addEventListener('pointermove', e => {
-  if (!pdown || state !== ST.PLAY) return;
+  if (!pdown || (state !== ST.PLAY && state !== ST.TUT) || paused) return;
   const p = getPos(e);
   if (Math.hypot(p.x - lastP.x, p.y - lastP.y) < 3) return;
   trail.push({ x: p.x, y: p.y, t: performance.now() });
@@ -566,7 +691,7 @@ document.addEventListener('pointermove', e => {
 function ptrUp(){
   if (!pdown) return;
   pdown = false;
-  if (state === ST.PLAY) finishStroke();
+  if (state === ST.PLAY || state === ST.TUT) finishStroke();
 }
 document.addEventListener('pointerup', ptrUp);
 document.addEventListener('pointercancel', ptrUp);
@@ -597,18 +722,19 @@ function update(dt){
     }
   }
   objs = objs.filter(o => !o.dead);
-  for (const p of pieces){
-    p.vy += g * 0.8 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
-    p.vx *= Math.exp(-1.6 * dt); p.vrot *= Math.exp(-1.2 * dt);  // 점성 감쇠
-    p.rot += p.vrot * dt; p.life -= dt; p.age += dt;
-  }
-  pieces = pieces.filter(p => p.life > 0 && p.y < H + 200);
   if (overPending){
     overDelay -= dt;
     if (overDelay <= 0) gameOver();
   }
 }
 function updateFx(dt){
+  const g = GRAV();
+  for (const p of pieces){
+    p.vy += g * 0.8 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= Math.exp(-1.6 * dt); p.vrot *= Math.exp(-1.2 * dt);  // 점성 감쇠
+    p.rot += p.vrot * dt; p.life -= dt; p.age += dt;
+  }
+  pieces = pieces.filter(p => p.life > 0 && p.y < H + 200);
   shake = Math.max(0, shake - 70 * dt);
   redFlash = Math.max(0, redFlash - 2.2 * dt);
   whiteFlash = Math.max(0, whiteFlash - 2.5 * dt);
@@ -952,7 +1078,8 @@ function loop(t){
   lastT = t;
   fpsAcc += raw; fpsN++;
   if (fpsAcc >= 0.5){ fpsEl.textContent = Math.round(fpsN / fpsAcc) + ' fps'; fpsAcc = 0; fpsN = 0; }
-  if (state === ST.PLAY) update(dt);
+  if (state === ST.PLAY && !paused) update(dt);
+  else if (state === ST.TUT && !paused) updateTut(dt);
   updateFx(dt);
   render();
   syncHUD();
@@ -965,6 +1092,10 @@ function startGame(){
   resetGame();
   $('startScreen').classList.add('hidden');
   $('overScreen').classList.add('hidden');
+  $('setScreen').classList.add('hidden');
+  $('tutBar').classList.add('hidden');
+  $('tutHint').style.display = 'none';
+  paused = false;
   state = ST.PLAY;
   syncHUD();
 }
@@ -979,8 +1110,33 @@ function gameOver(){
   $('newBestTag').classList.toggle('hidden', !isNew);
   $('overScreen').classList.remove('hidden');
 }
-$('startBtn').addEventListener('click', startGame);
+$('startBtn').addEventListener('click', () => {
+  if (!safeGet('sns_tut_done')) startTutorial();   // 첫 실행 시 튜토리얼
+  else startGame();
+});
 $('retryBtn').addEventListener('click', startGame);
+$('tutSkip').addEventListener('click', endTutorial);
+/* ----- 설정 ----- */
+function syncSoundLabel(){
+  $('setSound').textContent = muted ? '🔇 소리: 꺼짐' : '🔊 소리: 켜짐';
+  $('muteBtn').textContent = muted ? '🔇' : '🔊';
+}
+$('setBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  paused = true;
+  syncSoundLabel();
+  $('setScreen').classList.remove('hidden');
+});
+$('setClose').addEventListener('click', () => {
+  $('setScreen').classList.add('hidden');
+  paused = false;
+});
+$('setSound').addEventListener('click', () => {
+  muted = !muted;
+  if (master) master.gain.value = muted ? 0 : 0.8;
+  syncSoundLabel();
+});
+$('setTut').addEventListener('click', startTutorial);
 $('shareBtn').addEventListener('click', async () => {
   const text = 'Squish & Slash에서 ' + score + '점 달성! 🔪 최고 콤보 ' + maxCombo + '!';
   if (navigator.share){
