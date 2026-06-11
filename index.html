@@ -117,7 +117,7 @@
   .achBtn[disabled] { background:rgba(255,255,255,.15); color:#9a94b8; }
 
   /* ---------- 마스코트 & 모드 선택 ---------- */
-  #mascot { width:150px; height:150px; cursor:pointer; touch-action:manipulation; }
+  #mascot { width:min(240px, 55vw); height:min(240px, 55vw); cursor:pointer; touch-action:manipulation; }
   #mascot.boing { animation:boing .7s cubic-bezier(.28,.84,.42,1); }
   @keyframes boing {
     0% { transform:scale(1,1); }
