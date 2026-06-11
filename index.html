@@ -89,6 +89,10 @@
   #gachaName { font-size:20px; font-weight:800; }
   #gachaRar { font-size:15px; font-weight:700; }
   #gachaMsg { font-size:14px; color:#ff8a9a; min-height:18px; }
+  #gachaMulti { display:none; grid-template-columns:repeat(5, minmax(54px, 64px)); gap:8px; }
+  .gcard { display:flex; flex-direction:column; align-items:center; gap:1px; font-size:10px; font-weight:700; opacity:0; transform:scale(.5); transition:all .25s; }
+  .gcard.show { opacity:1; transform:scale(1); }
+  .gcard canvas { width:48px; height:48px; }
 
   /* ---------- Overlays ---------- */
   .overlay {
@@ -193,8 +197,6 @@
   <button id="retryBtn" class="btn">다시하기</button>
   <div class="metaRow">
     <button class="btn ghost" id="lobbyBtn">🏠 로비로</button>
-    <button class="btn ghost openColl">📚 도감</button>
-    <button class="btn ghost openGacha">🎁 뽑기</button>
     <button id="shareBtn" class="btn ghost">공유</button>
   </div>
 </div>
@@ -202,7 +204,7 @@
 <div id="collScreen" class="overlay hidden">
   <div class="ovTitle">도감</div>
   <div id="collRate"></div>
-  <div class="collHint">캐릭터를 누르면 장착! 게임에 그 모습으로 등장해요</div>
+  <div class="collHint">모은 캐릭터들이 게임에 랜덤으로 등장해요!</div>
   <div id="collGrid"></div>
   <button class="btn" id="collClose">닫기</button>
 </div>
@@ -215,9 +217,13 @@
     <div id="gachaName"></div>
     <div id="gachaRar"></div>
   </div>
+  <div id="gachaMulti"></div>
   <div id="gachaMsg"></div>
   <div class="coinBar">🪙 <span class="coinVal">0</span></div>
-  <button class="btn" id="gachaPull">100🪙 뽑기!</button>
+  <div class="metaRow">
+    <button class="btn" id="gachaPull">1회 100🪙</button>
+    <button class="btn" id="gachaPull10">10회 900🪙</button>
+  </div>
   <button class="btn ghost" id="gachaClose">닫기</button>
 </div>
 
@@ -592,8 +598,9 @@ function spawnObj(){
   let pal, deco = null;
   if (gold) pal = { light: '#fff8cf', main: '#ffd54d', dark: '#cf9a12' };
   else if (type === 'ice') pal = COLORS.ice;
-  else {   // 장착한 캐릭터 스킨으로 등장
-    const ch = charById(type === 'slangi' ? gd.eqS : gd.eqW, type);
+  else {   // 도감에 모은 캐릭터들이 랜덤으로 등장
+    const pool = CHARS.filter(c => c.type === type && gd.owned.includes(c.id));
+    const ch = pool.length ? pool[(Math.random() * pool.length) | 0] : charById(null, type);
     pal = ch.pal; deco = ch.deco || null;
   }
   const seed = rand(0, TAU);
@@ -1328,19 +1335,14 @@ function buildColl(){
   let own = 0;
   for (const ch of CHARS){
     const owned = gd.owned.includes(ch.id); if (owned) own++;
-    const eq = (ch.type === 'slangi' ? gd.eqS : gd.eqW) === ch.id;
     const card = document.createElement('div');
-    card.className = 'card' + (owned ? '' : ' lock') + (eq && owned ? ' eq' : '');
+    card.className = 'card' + (owned ? '' : ' lock');
     const cvs = document.createElement('canvas'); cvs.width = cvs.height = 104;
     renderCharTo(cvs, ch, !owned);
     const nm = document.createElement('div'); nm.className = 'nm';
     nm.textContent = owned ? ch.name : '???';
     nm.style.color = RARITY[ch.rar].color;
     card.appendChild(cvs); card.appendChild(nm);
-    if (owned) card.onclick = () => {
-      if (ch.type === 'slangi') gd.eqS = ch.id; else gd.eqW = ch.id;
-      saveGd(); buildColl();
-    };
     grid.appendChild(card);
   }
   $('collRate').textContent = '수집률 ' + own + ' / ' + CHARS.length;
@@ -1350,38 +1352,51 @@ document.querySelectorAll('.openColl').forEach(b => b.addEventListener('click', 
 }));
 $('collClose').addEventListener('click', () => $('collScreen').classList.add('hidden'));
 document.querySelectorAll('.openGacha').forEach(b => b.addEventListener('click', () => {
-  $('gachaResult').style.display = 'none';
-  $('gachaBox').style.display = 'block';
-  $('gachaMsg').textContent = '';
+  gachaReset();
   refreshCoins();
   $('gachaScreen').classList.remove('hidden');
 }));
 $('gachaClose').addEventListener('click', () => $('gachaScreen').classList.add('hidden'));
+function gachaReset(){
+  $('gachaResult').style.display = 'none';
+  $('gachaMulti').style.display = 'none';
+  $('gachaMulti').innerHTML = '';
+  $('gachaBox').style.display = 'block';
+  $('gachaMsg').textContent = '';
+}
+function doPull(){   // 일반 60 / 레어 28 / 에픽 10 / 전설 2
+  const roll = Math.random() * 100;
+  const rar = roll < 2 ? 4 : roll < 12 ? 3 : roll < 40 ? 2 : 1;
+  const pool = CHARS.filter(c => c.rar === rar);
+  const ch = pool[(Math.random() * pool.length) | 0];
+  const dup = gd.owned.includes(ch.id);
+  if (dup) gd.coins += 30;   // 중복 환급
+  else gd.owned.push(ch.id);
+  return { ch, dup };
+}
 let pulling = false;
-$('gachaPull').addEventListener('click', () => {
-  if (pulling) return;
+function startPullAnim(cost, done){
+  if (pulling) return false;
   initAudio();
-  if (gd.coins < 100){
+  if (gd.coins < cost){
     $('gachaMsg').textContent = '코인이 부족해요! 게임 점수의 10%가 코인으로 쌓여요';
-    return;
+    return false;
   }
   pulling = true;
-  gd.coins -= 100; saveGd(); refreshCoins();
-  $('gachaMsg').textContent = '';
-  $('gachaResult').style.display = 'none';
-  $('gachaBox').style.display = 'block';
+  gd.coins -= cost; saveGd(); refreshCoins();
+  gachaReset();
   $('gachaBox').classList.add('shake');
   playCombo(3);
   setTimeout(() => {
     $('gachaBox').classList.remove('shake');
     $('gachaBox').style.display = 'none';
-    const roll = Math.random() * 100;   // 일반 60 / 레어 28 / 에픽 10 / 전설 2
-    const rar = roll < 2 ? 4 : roll < 12 ? 3 : roll < 40 ? 2 : 1;
-    const pool = CHARS.filter(c => c.rar === rar);
-    const ch = pool[(Math.random() * pool.length) | 0];
-    const dup = gd.owned.includes(ch.id);
-    if (dup) gd.coins += 30;
-    else gd.owned.push(ch.id);
+    done();
+  }, 1000);
+  return true;
+}
+$('gachaPull').addEventListener('click', () => {
+  startPullAnim(100, () => {
+    const { ch, dup } = doPull();
     saveGd(); refreshCoins();
     renderCharTo($('gachaCv'), ch, false);
     $('gachaName').textContent = ch.name;
@@ -1391,7 +1406,32 @@ $('gachaPull').addEventListener('click', () => {
     playCombo(2 + ch.rar);
     buzz(ch.rar >= 3 ? [40, 60, 80] : 30);
     pulling = false;
-  }, 1000);
+  });
+});
+$('gachaPull10').addEventListener('click', () => {
+  startPullAnim(900, () => {
+    const results = [];
+    for (let i = 0; i < 10; i++) results.push(doPull());
+    saveGd(); refreshCoins();
+    const grid = $('gachaMulti');
+    grid.style.display = 'grid';
+    results.forEach((res, i) => {
+      const card = document.createElement('div'); card.className = 'gcard';
+      const cvs = document.createElement('canvas'); cvs.width = cvs.height = 96;
+      renderCharTo(cvs, res.ch, false);
+      const nm = document.createElement('div');
+      nm.textContent = res.dup ? '중복 +30🪙' : 'NEW!';
+      nm.style.color = res.dup ? '#9aa3b8' : RARITY[res.ch.rar].color;
+      card.appendChild(cvs); card.appendChild(nm);
+      grid.appendChild(card);
+      setTimeout(() => {   // 한 장씩 차례로 공개
+        card.classList.add('show');
+        playCombo(1 + res.ch.rar);
+        if (res.ch.rar >= 4) buzz([40, 60, 100]);
+      }, 150 + i * 160);
+    });
+    setTimeout(() => { pulling = false; }, 150 + 10 * 160);
+  });
 });
 refreshCoins();
 $('shareBtn').addEventListener('click', async () => {
