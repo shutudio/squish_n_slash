@@ -253,6 +253,7 @@
 
 <div id="achScreen" class="overlay hidden">
   <div class="ovTitle">업적</div>
+  <button class="achBtn" id="achAll">모두 받기</button>
   <div id="achList"></div>
   <button class="btn" id="achClose">닫기</button>
 </div>
@@ -491,7 +492,7 @@ let paused = false;
 let score = 0, lives = 3, elapsed = 0, spawnT = 0, maxCombo = 0;
 let best = +(safeGet('sns_best') || 0);
 let objs = [], pieces = [], parts = [], pops = [], strands = [];
-let shake = 0, redFlash = 0, whiteFlash = 0, fever = 0, feverSec = 0, hitstop = 0;
+let shake = 0, redFlash = 0, whiteFlash = 0, fever = 0, feverSec = 0, feverCd = 0, hitstop = 0;
 let trail = [];
 let pdown = false, lastP = null;
 let strokeN = 0, strokeBase = 0, strokePts = [], lastSliceT = 0;
@@ -502,7 +503,7 @@ let shownScore = -1, shownLives = -1;
 function resetGame(){
   score = 0; lives = 3; elapsed = 0; spawnT = 0.6; maxCombo = 0; timeLeft = 60;
   objs = []; pieces = []; parts = []; pops = []; strands = [];
-  shake = 0; redFlash = 0; whiteFlash = 0; fever = 0; feverSec = 0; hitstop = 0; trail = [];
+  shake = 0; redFlash = 0; whiteFlash = 0; fever = 0; feverSec = 0; feverCd = 0; hitstop = 0; trail = [];
   strokeN = 0; strokeBase = 0; strokePts = [];
   overPending = false; shownScore = -1; shownLives = -1;
 }
@@ -806,7 +807,7 @@ function finishStroke(){
       text: strokeN + ' 콤보! ×' + mult + ' +' + bonus, color: '#ffd84d', life: 1.2, size: 32, vy: -50 });
     playCombo(strokeN); whiteFlash = Math.max(whiteFlash, 0.3);
     buzz([20, 40, 25]);
-    if (strokeN >= 4 && state === ST.PLAY && fever <= 0){   // 4콤보 → 피버! (피버 중 연장 없음)
+    if (strokeN >= 4 && state === ST.PLAY && fever <= 0 && feverCd <= 0){   // 4콤보 → 피버! (연장·연쇄 발동 없음)
       fever = 4;
       gd.st.fever++;
       pops.push({ x: W / 2, y: H * 0.35, text: '🔥 FEVER TIME!', color: '#ffd84d', life: 1.4, size: 40, vy: -30 });
@@ -957,10 +958,12 @@ function update(dt){
   if (pdown && strokeN > 0 && performance.now() - lastSliceT > 450) finishStroke();
   const prevFever = fever;
   fever = Math.max(0, fever - dt);
+  feverCd = Math.max(0, feverCd - dt);
   if (prevFever > 0){   // 피버 카운트다운 3·2·1 + 종료 알림
     const fs = Math.ceil(fever);
     if (fever <= 0){
       feverSec = 0;
+      feverCd = 1.5;   // 피버 직후 쿨다운: 재발동 금지 + 놓침 무벌점 (무한 피버 방지)
       pops.push({ x: W / 2, y: H * 0.3, text: '피버 종료', color: '#ffffff', life: 0.8, size: 28, vy: -40 });
     } else if (fs !== feverSec && fs <= 3){
       feverSec = fs;
@@ -983,7 +986,7 @@ function update(dt){
     if ((o.x < o.r && o.vx < 0) || (o.x > W - o.r && o.vx > 0)) o.vx *= -1;
     if (!o.dead && o.vy > 0 && o.y > H + o.r + 30){
       o.dead = true;
-      if (o.type !== 'ice' && !o.hit && !o.mini && !overPending && fever <= 0) missObj(o);  // 새끼·피버 중엔 무벌점
+      if (o.type !== 'ice' && !o.hit && !o.mini && !overPending && fever <= 0 && feverCd <= 0) missObj(o);  // 새끼·피버·쿨다운 중엔 무벌점
     }
   }
   objs = objs.filter(o => !o.dead);
@@ -1683,7 +1686,27 @@ function buildAch(){
     row.appendChild(info); row.appendChild(btn);
     list.appendChild(row);
   }
+  // 모두 받기
+  const claimable = ACH.filter(a => !gd.claimed.includes(a.id) && a.tg() >= a.m);
+  const sum = claimable.reduce((s, a) => s + a.rw, 0);
+  const allBtn = $('achAll');
+  if (sum > 0){
+    allBtn.disabled = false;
+    allBtn.textContent = '🎁 모두 받기 (+' + sum + '🪙)';
+  } else {
+    allBtn.disabled = true;
+    allBtn.textContent = '받을 보상 없음';
+  }
 }
+$('achAll').addEventListener('click', () => {
+  const claimable = ACH.filter(a => !gd.claimed.includes(a.id) && a.tg() >= a.m);
+  if (!claimable.length) return;
+  let sum = 0;
+  for (const a of claimable){ gd.claimed.push(a.id); sum += a.rw; }
+  gd.coins += sum;
+  saveGd(); refreshCoins(); buildAch();
+  initAudio(); playCombo(5); buzz([30, 40, 50]);
+});
 $('achBtn').addEventListener('click', () => { buildAch(); $('achScreen').classList.remove('hidden'); });
 $('achClose').addEventListener('click', () => $('achScreen').classList.add('hidden'));
 
