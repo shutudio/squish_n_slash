@@ -239,7 +239,7 @@
 <div id="collScreen" class="overlay hidden">
   <div class="ovTitle">도감</div>
   <div id="collRate"></div>
-  <div class="collHint">모은 캐릭터들이 게임에 랜덤으로 등장해요!</div>
+  <div class="collHint">모은 캐릭터들이 게임에 랜덤으로 등장! 중복으로 모으면 마리당 +1점 강화돼요</div>
   <div id="collGrid"></div>
   <button class="btn" id="collClose">닫기</button>
 </div>
@@ -271,7 +271,7 @@
   <div class="coinBar">🪙 <span class="coinVal">0</span></div>
   <div class="metaRow">
     <button class="btn" id="gachaPull">1회 100🪙</button>
-    <button class="btn" id="gachaPull10">10회 900🪙</button>
+    <button class="btn" id="gachaPull10">10회 1000🪙</button>
   </div>
   <button class="btn ghost" id="gachaClose">닫기</button>
 </div>
@@ -564,6 +564,10 @@ if (!gd || !gd.owned) gd = { coins: 0, owned: ['cheese', 'cotton'], eqS: 'cheese
 if (!gd.st) gd.st = { sliced: 0, wak: 0, gold: 0, combo: 0, score: 0, games: 0, fever: 0 };
 if (gd.st.combos == null) gd.st.combos = 0;
 if (!gd.claimed) gd.claimed = [];
+if (!gd.cnt){   // 캐릭터 보유 개수 (중복 = 강화: 마리당 슬라이스 +1점)
+  gd.cnt = {};
+  gd.owned.forEach(id => { gd.cnt[id] = 1; });
+}
 if (!gd.tier){   // 구버전 업적 → 단계형 업적 마이그레이션
   const c = gd.claimed;
   gd.tier = {
@@ -665,13 +669,14 @@ function spawnObj(){
   const apex = H * rand(0.55, 0.85);
   const gold = type === 'slangi' && Math.random() < 0.06;   // 레어 황금 슬랑이
   const multi = type === 'slangi' && !gold && Math.random() < 0.08;  // 멀티 슬랑이 (연쇄)
-  let pal, deco = null, chRar = 0;
+  let pal, deco = null, chRar = 0, chDup = 0;
   if (gold) pal = { light: '#fff8cf', main: '#ffd54d', dark: '#cf9a12' };
   else if (type === 'ice') pal = COLORS.ice;
   else {   // 도감에 모은 캐릭터들이 랜덤으로 등장
     const pool = CHARS.filter(c => c.type === type && gd.owned.includes(c.id));
     const ch = pool.length ? pool[(Math.random() * pool.length) | 0] : charById(null, type);
     pal = ch.pal; deco = ch.deco || null; chRar = ch.rar;
+    chDup = (gd.cnt[ch.id] || 1) - 1;   // 중복 보유 수만큼 +1점씩
   }
   const seed = rand(0, TAU);
   objs.push({
@@ -680,7 +685,7 @@ function spawnObj(){
     vy: -Math.sqrt(2 * GRAV() * apex),
     r: R, rot: rand(0, TAU), vrot: rand(-2, 2),
     phase: rand(0, TAU), hit: false, dead: false, iceFlash: 0,
-    pal, seed, rar: chRar, spr: makeSprite(type, R, pal, seed, multi, deco)
+    pal, seed, rar: chRar, dupB: chDup, spr: makeSprite(type, R, pal, seed, multi, deco)
   });
 }
 
@@ -709,6 +714,7 @@ function sliceObj(o, ang, a){
   cut = clamp(cut, -o.r * 0.65, o.r * 0.65);
   o.dead = true;
   let base = o.gold ? 50 : o.mini ? 5 : o.type === 'wak' ? 20 : 10;
+  base += o.dupB || 0;        // 중복 보유 강화 (+1점/마리)
   if (fever > 0) base *= 2;   // 피버타임 2배
   // 통계 (업적용)
   gd.st.sliced++;
@@ -1498,7 +1504,8 @@ function buildColl(){
     const cvs = document.createElement('canvas'); cvs.width = cvs.height = 104;
     renderCharTo(cvs, ch, !owned);
     const nm = document.createElement('div'); nm.className = 'nm';
-    nm.textContent = owned ? ch.name : '???';
+    const n = gd.cnt[ch.id] || 1;
+    nm.textContent = owned ? ch.name + (n > 1 ? ' ×' + n : '') : '???';
     nm.style.color = RARITY[ch.rar].color;
     card.appendChild(cvs); card.appendChild(nm);
     grid.appendChild(card);
@@ -1528,9 +1535,9 @@ function doPull(){   // 일반 60 / 레어 28 / 에픽 10 / 전설 2
   const pool = CHARS.filter(c => c.rar === rar);
   const ch = pool[(Math.random() * pool.length) | 0];
   const dup = gd.owned.includes(ch.id);
-  if (dup) gd.coins += 30;   // 중복 환급
-  else gd.owned.push(ch.id);
-  return { ch, dup };
+  if (dup) gd.cnt[ch.id] = (gd.cnt[ch.id] || 1) + 1;   // 중복 = 강화 (+1점/마리)
+  else { gd.owned.push(ch.id); gd.cnt[ch.id] = 1; }
+  return { ch, dup, n: gd.cnt[ch.id] };
 }
 let pulling = false;
 function startPullAnim(cost, done){
@@ -1554,11 +1561,11 @@ function startPullAnim(cost, done){
 }
 $('gachaPull').addEventListener('click', () => {
   startPullAnim(100, () => {
-    const { ch, dup } = doPull();
+    const { ch, dup, n } = doPull();
     saveGd(); refreshCoins();
     renderCharTo($('gachaCv'), ch, false);
     $('gachaName').textContent = ch.name;
-    $('gachaRar').textContent = RARITY[ch.rar].name + (dup ? ' · 중복! +30🪙 환급' : ' · NEW!');
+    $('gachaRar').textContent = RARITY[ch.rar].name + (dup ? ' · 강화! ×' + n + ' (슬라이스 +' + (n - 1) + '점)' : ' · NEW!');
     $('gachaRar').style.color = RARITY[ch.rar].color;
     $('gachaResult').style.display = 'flex';
     playCombo(2 + ch.rar);
@@ -1567,7 +1574,7 @@ $('gachaPull').addEventListener('click', () => {
   });
 });
 $('gachaPull10').addEventListener('click', () => {
-  startPullAnim(900, () => {
+  startPullAnim(1000, () => {
     const results = [];
     for (let i = 0; i < 10; i++) results.push(doPull());
     saveGd(); refreshCoins();
@@ -1578,7 +1585,7 @@ $('gachaPull10').addEventListener('click', () => {
       const cvs = document.createElement('canvas'); cvs.width = cvs.height = 96;
       renderCharTo(cvs, res.ch, false);
       const nm = document.createElement('div');
-      nm.textContent = res.dup ? '중복 +30🪙' : 'NEW!';
+      nm.textContent = res.dup ? '강화 ×' + res.n : 'NEW!';
       nm.style.color = res.dup ? '#9aa3b8' : RARITY[res.ch.rar].color;
       card.appendChild(cvs); card.appendChild(nm);
       grid.appendChild(card);
