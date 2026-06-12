@@ -562,7 +562,23 @@ let gd = null;
 try { gd = JSON.parse(safeGet('sns_gd') || 'null'); } catch(e){ gd = null; }
 if (!gd || !gd.owned) gd = { coins: 0, owned: ['cheese', 'cotton'], eqS: 'cheese', eqW: 'cotton' };
 if (!gd.st) gd.st = { sliced: 0, wak: 0, gold: 0, combo: 0, score: 0, games: 0, fever: 0 };
+if (gd.st.combos == null) gd.st.combos = 0;
 if (!gd.claimed) gd.claimed = [];
+if (!gd.tier){   // 구버전 업적 → 단계형 업적 마이그레이션
+  const c = gd.claimed;
+  gd.tier = {
+    games: c.includes('g1') ? 1 : 0,
+    slice: c.includes('s500') ? 2 : c.includes('s100') ? 1 : 0,
+    wak:   c.includes('w50') ? 1 : 0,
+    gold:  c.includes('gold5') ? 1 : 0,
+    combos: 0,
+    bestc: c.includes('c8') ? 2 : c.includes('c5') ? 1 : 0,
+    score: c.includes('sc1000') ? 1 : 0,
+    fever: c.includes('f5') ? 1 : 0,
+    coll:  c.includes('colA') ? 4 : c.includes('col8') ? 2 : 0
+  };
+  saveGd();
+}
 function saveGd(){ safeSet('sns_gd', JSON.stringify(gd)); }
 function charById(id, type){
   return CHARS.find(c => c.id === id && c.type === type) || CHARS.find(c => c.type === type);
@@ -807,6 +823,7 @@ function finishStroke(){
       text: strokeN + ' 콤보! ×' + mult + ' +' + bonus, color: '#ffd84d', life: 1.2, size: 32, vy: -50 });
     playCombo(strokeN); whiteFlash = Math.max(whiteFlash, 0.3);
     buzz([20, 40, 25]);
+    gd.st.combos++;   // 콤보 달성 횟수 (단계형 업적용)
     if (strokeN >= 4 && state === ST.PLAY && fever <= 0 && feverCd <= 0){   // 4콤보 → 피버! (연장·연쇄 발동 없음)
       fever = 4;
       gd.st.fever++;
@@ -1650,59 +1667,66 @@ mascot.addEventListener('pointerdown', e => {
 });
 
 /* ================= 업적 ================= */
+/* 단계형 업적: 한 단계를 받으면 다음 단계가 열림. tiers: [목표, 보상] */
+const ROMAN = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ'];
 const ACH = [
-  { id: 'g1',     nm: '첫 발자국',   ds: '게임 1회 플레이',      tg: () => gd.st.games,    m: 1,    rw: 50 },
-  { id: 's100',   nm: '썰기 입문',   ds: '슬라이스 100회',       tg: () => gd.st.sliced,   m: 100,  rw: 100 },
-  { id: 's500',   nm: '썰기 달인',   ds: '슬라이스 500회',       tg: () => gd.st.sliced,   m: 500,  rw: 250 },
-  { id: 'w50',    nm: '왁뿌 파괴자', ds: '왁뿌볼 50개 부수기',   tg: () => gd.st.wak,      m: 50,   rw: 100 },
-  { id: 'gold5',  nm: '황금 사냥꾼', ds: '황금 슬랑이 5개',      tg: () => gd.st.gold,     m: 5,    rw: 150 },
-  { id: 'c5',     nm: '콤보 마스터', ds: '5콤보 달성',           tg: () => gd.st.combo,    m: 5,    rw: 100 },
-  { id: 'c8',     nm: '콤보 신',     ds: '8콤보 달성',           tg: () => gd.st.combo,    m: 8,    rw: 250 },
-  { id: 'sc1000', nm: '천 점 돌파',  ds: '한 판에 1000점',       tg: () => gd.st.score,    m: 1000, rw: 150 },
-  { id: 'f5',     nm: '피버 중독',   ds: '피버타임 5회 발동',    tg: () => gd.st.fever,    m: 5,    rw: 150 },
-  { id: 'col8',   nm: '수집가',      ds: '도감 8종 모으기',      tg: () => gd.owned.length, m: 8,   rw: 200 },
-  { id: 'colA',   nm: '도감 완성',   ds: '도감 16종 모두 모으기', tg: () => gd.owned.length, m: 16,  rw: 500 }
+  { id: 'games',  nm: '꾸준한 슬래셔', ds: '게임 플레이',     u: '회', tg: () => gd.st.games,     tiers: [[1, 50], [10, 100], [30, 200], [100, 500]] },
+  { id: 'slice',  nm: '썰기의 길',     ds: '슬라이스',        u: '회', tg: () => gd.st.sliced,    tiers: [[100, 100], [500, 250], [2000, 500], [5000, 1000]] },
+  { id: 'wak',    nm: '왁뿌 파괴자',   ds: '왁뿌볼 부수기',   u: '개', tg: () => gd.st.wak,       tiers: [[50, 100], [200, 200], [1000, 500]] },
+  { id: 'gold',   nm: '황금 사냥꾼',   ds: '황금 슬랑이',     u: '개', tg: () => gd.st.gold,      tiers: [[5, 150], [20, 300], [50, 600]] },
+  { id: 'combos', nm: '콤보 수집가',   ds: '콤보 달성',       u: '번', tg: () => gd.st.combos,    tiers: [[10, 100], [20, 150], [50, 300], [100, 600]] },
+  { id: 'bestc',  nm: '콤보 기록',     ds: '최고 콤보',       u: '',   tg: () => gd.st.combo,     tiers: [[5, 100], [8, 250], [12, 500]] },
+  { id: 'score',  nm: '점수 돌파',     ds: '한 판 최고',      u: '점', tg: () => gd.st.score,     tiers: [[1000, 150], [3000, 300], [8000, 700]] },
+  { id: 'fever',  nm: '피버 중독',     ds: '피버 발동',       u: '회', tg: () => gd.st.fever,     tiers: [[5, 150], [20, 300], [60, 600]] },
+  { id: 'coll',   nm: '수집가',        ds: '도감 수집',       u: '종', tg: () => gd.owned.length, tiers: [[4, 100], [8, 200], [12, 300], [16, 500]] }
 ];
+function achClaimableSum(){
+  let sum = 0;
+  for (const a of ACH){
+    let t = gd.tier[a.id] || 0;
+    while (t < a.tiers.length && a.tg() >= a.tiers[t][0]){ sum += a.tiers[t][1]; t++; }
+  }
+  return sum;
+}
 function buildAch(){
   const list = $('achList'); list.innerHTML = '';
   for (const a of ACH){
-    const v = Math.min(a.tg(), a.m);
-    const doneA = a.tg() >= a.m;
-    const claimed = gd.claimed.includes(a.id);
+    const t = gd.tier[a.id] || 0;
+    const doneAll = t >= a.tiers.length;
+    const [m, rw] = doneAll ? a.tiers[a.tiers.length - 1] : a.tiers[t];
+    const v = Math.min(a.tg(), m);
     const row = document.createElement('div'); row.className = 'ach';
     const info = document.createElement('div'); info.className = 'ainfo';
-    info.innerHTML = '<div class="anm">' + a.nm + '</div><div class="adesc">' + a.ds +
-      '</div><div class="aprog">' + v + ' / ' + a.m + '</div>';
+    info.innerHTML = '<div class="anm">' + a.nm + ' ' + (doneAll ? '★' : ROMAN[t]) +
+      '</div><div class="adesc">' + a.ds + ' ' + m + a.u +
+      '</div><div class="aprog">' + (doneAll ? '올클리어!' : v + ' / ' + m) + '</div>';
     const btn = document.createElement('button'); btn.className = 'achBtn';
-    if (claimed){ btn.textContent = '완료 ✓'; btn.disabled = true; }
-    else if (doneA){
-      btn.textContent = '+' + a.rw + '🪙 받기';
+    if (doneAll){ btn.textContent = '올클리어 ✓'; btn.disabled = true; }
+    else if (a.tg() >= m){
+      btn.textContent = '+' + rw + '🪙 받기';
       btn.onclick = () => {
-        gd.claimed.push(a.id); gd.coins += a.rw;
+        gd.tier[a.id] = t + 1; gd.coins += rw;
         saveGd(); refreshCoins(); buildAch();
         initAudio(); playCombo(4); buzz(30);
       };
-    } else { btn.textContent = '+' + a.rw + '🪙'; btn.disabled = true; }
+    } else { btn.textContent = '+' + rw + '🪙'; btn.disabled = true; }
     row.appendChild(info); row.appendChild(btn);
     list.appendChild(row);
   }
-  // 모두 받기
-  const claimable = ACH.filter(a => !gd.claimed.includes(a.id) && a.tg() >= a.m);
-  const sum = claimable.reduce((s, a) => s + a.rw, 0);
+  // 모두 받기 (연속 달성된 단계까지 한 번에)
+  const sum = achClaimableSum();
   const allBtn = $('achAll');
-  if (sum > 0){
-    allBtn.disabled = false;
-    allBtn.textContent = '🎁 모두 받기 (+' + sum + '🪙)';
-  } else {
-    allBtn.disabled = true;
-    allBtn.textContent = '받을 보상 없음';
-  }
+  if (sum > 0){ allBtn.disabled = false; allBtn.textContent = '🎁 모두 받기 (+' + sum + '🪙)'; }
+  else { allBtn.disabled = true; allBtn.textContent = '받을 보상 없음'; }
 }
 $('achAll').addEventListener('click', () => {
-  const claimable = ACH.filter(a => !gd.claimed.includes(a.id) && a.tg() >= a.m);
-  if (!claimable.length) return;
   let sum = 0;
-  for (const a of claimable){ gd.claimed.push(a.id); sum += a.rw; }
+  for (const a of ACH){
+    let t = gd.tier[a.id] || 0;
+    while (t < a.tiers.length && a.tg() >= a.tiers[t][0]){ sum += a.tiers[t][1]; t++; }
+    gd.tier[a.id] = t;
+  }
+  if (!sum) return;
   gd.coins += sum;
   saveGd(); refreshCoins(); buildAch();
   initAudio(); playCombo(5); buzz([30, 40, 50]);
